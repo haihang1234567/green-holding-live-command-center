@@ -1,0 +1,152 @@
+/* GREEN HOLDING — light corporate dashboard override */
+:root{
+  --bg:#f5f7f9;
+  --bg2:#ffffff;
+  --panel:#ffffff;
+  --panel2:#f8faf9;
+  --line:#e3e9e6;
+  --line2:#d2ddd7;
+  --text:#17211d;
+  --muted:#6d7f77;
+  --green:#18a968;
+  --green2:#0d8b54;
+  --amber:#d98a13;
+  --red:#dc4c4c;
+  --blue:#337bd8;
+  --purple:#7a5bd6;
+  --shadow:0 8px 28px rgba(23,51,39,.07);
+}
+
+html,body,#root{background:#f5f7f9!important;color:var(--text)!important}
+body{color-scheme:light}
+
+/* Shell / navigation */
+.sidebar{
+  background:#ffffff!important;
+  border-right:1px solid #e0e7e3!important;
+  box-shadow:4px 0 18px rgba(25,62,45,.035);
+}
+.brand{border-bottom-color:#e4ebe7!important}
+.brand-mark{background:linear-gradient(135deg,#24c77c,#0f8f57)!important;color:#fff!important;box-shadow:0 6px 18px rgba(24,169,104,.18)!important}
+.brand strong,.top-left h1{color:#19241f!important}
+.brand span,.top-left p{color:#7d8d86!important}
+.sidebar nav a{color:#52675e!important}
+.sidebar nav a:hover{background:#f3f8f5!important;color:#183b2b!important}
+.sidebar nav a.active{color:#087a48!important;background:#eaf8f0!important;box-shadow:inset 3px 0 #18a968!important}
+.side-bottom{border-top-color:#e4ebe7!important}
+.user-card{background:#f8fbf9!important;border-color:#dde7e1!important;color:#1d2923!important}
+.side-bottom>button{background:#fff!important;color:#52675e!important;border-color:#dbe5df!important}
+.mobile-close,.menu{color:#223129!important}
+
+.main{background:#f5f7f9!important}
+.topbar{
+  background:rgba(255,255,255,.94)!important;
+  border-bottom-color:#e1e8e4!important;
+  box-shadow:0 2px 14px rgba(18,48,35,.035);
+}
+.api-pill{background:#f7fbf8!important;border-color:#d9e7df!important;color:#26352d!important}
+.avatar{background:#eaf8f0!important;color:#087a48!important;border-color:#bde6ce!important}
+.content{background:#f5f7f9!important}
+.page-title h2{color:#142019!important}
+.page-title p{color:#71827a!important}
+.section-kicker{color:#0f9b5e!important}
+
+/* Inputs / buttons */
+.page-actions select,.mock-toolbar select,.refund-select-panel select,.config-card input,.settings-grid input,.login-card input{
+  background:#fff!important;
+  color:#1e2c25!important;
+  border-color:#d7e1dc!important;
+  box-shadow:0 1px 2px rgba(28,49,40,.03);
+}
+.primary{background:linear-gradient(135deg,#21b873,#15965d)!important;color:#fff!important;box-shadow:0 5px 14px rgba(24,169,104,.15)}
+.secondary{background:#fff!important;border-color:#d6e2dc!important;color:#31483d!important}
+.secondary:hover{background:#f5faf7!important}
+.danger{background:#fff5f5!important;border-color:#f2cccc!important;color:#c94242!important}
+.link-button{background:#eefaf3!important;border-color:#bee6cf!important;color:#087b49!important}
+.mode-badge.mock{color:#9a5b00!important;background:#fff6e6!important;border-color:#efd3a2!important}
+.mode-badge.real{color:#087b49!important;background:#ebf9f1!important;border-color:#bfe6cf!important}
+.mode-badge.ended{color:#61746b!important;background:#f3f6f4!important;border-color:#dce4df!important}
+
+/* Primary dashboard cards */
+.channel-card,
+.channel-card.live,
+.kpi-card,
+.panel,
+.rank-card,
+.session-hero{
+  background:#fff!important;
+  border-color:#dfe7e3!important;
+  box-shadow:var(--shadow)!important;
+}
+.channel-card.live{border-color:#93d8b5!important;box-shadow:0 8px 28px rgba(24,169,104,.08)!important}
+.eyebrow{color:#7a8e84!important}
+.channel-head h3,.channel-meta b,.channel-kpis b,.kpi-card strong,.panel-head h3,.panel-head>strong,.top-list b,.top-list strong,.rank-card h3,.rank-card strong{color:#16231d!important}
+.channel-meta div,.channel-kpis div{border-left-color:#e5ece8!important}
+.channel-kpis{border-top-color:#e5ece8!important}
+.channel-meta small,.channel-kpis small,.kpi-card small,.kpi-card span,.top-list small,.rank-card small,.rank-card>span{color:#71847a!important}
+.status{color:#687b72!important;border-color:#d8e2dd!important;background:#f8faf9!important}
+.status.live{color:#087b49!important;border-color:#b7e4ca!important;background:#eaf9f1!important}
+.status.live span{background:#1cb56d!important;box-shadow:none!important}
+.offline-content{color:#8da099!important}
+.offline-content b{color:#64786f!important}
+.offline-content span{color:#91a199!important}
+.kpi-card.success{border-color:#a8ddbf!important;background:#fbfffc!important}
+
+/* Panels / rankings / alerts */
+.top-list>div,.status-list>div{border-bottom-color:#e6ece9!important}
+.rank{background:#e8f7ef!important;color:#087b49!important}
+.ranking-mini>div{background:#f8fbf9!important;border-color:#e1e9e5!important;color:#26382f!important}
+.ranking-mini strong{color:#087b49!important}
+.alert-row{background:#fafbfa!important;border-color:#e1e8e4!important}
+.alert-row.warning{background:#fffaf0!important;border-color:#eed7a9!important}
+.alert-row.live{background:#eefaf3!important;border-color:#bfe4ce!important}
+.alert-row b{color:#233129!important}
+.alert-row span,.alert-row time{color:#71847a!important}
+.optional-grid>div{border-color:#d7e2dc!important;background:#fbfcfb!important}
+.optional-grid small,.optional-grid b{color:#73877d!important}
+
+/* Tables */
+.table-panel{background:#fff!important}
+.table-scroll th{background:#f3f7f5!important;color:#52685d!important;border-bottom-color:#dce5e0!important}
+.table-scroll td{color:#52675e!important;border-bottom-color:#e7ece9!important;background:#fff!important}
+.table-scroll tr:hover td{background:#f8fbf9!important}
+.table-scroll td b{color:#17241d!important}
+.table-scroll td a{color:#0a8e55!important}
+.badge.live{background:#e8f8ef!important;color:#07804a!important}
+.badge.ended{background:#f0f3f1!important;color:#63756c!important}
+.badge.offline{background:#f4f5f4!important;color:#75857d!important}
+
+/* Refund / config */
+.refund-big{background:#fff8eb!important;border-color:#efd7aa!important}
+.refund-big small{color:#9a7950!important}
+.refund-big strong{color:#c87800!important}
+.refund-values>div{background:#f6f9f7!important;border:1px solid #e4ebe7!important}
+.refund-values small{color:#7b8e84!important}
+.refund-values b{color:#223129!important}
+.switch-row,.config-card label,.settings-grid label,.login-card label,.mock-toolbar label{color:#667a70!important}
+.status-list span,.muted,.env-panel p{color:#71847a!important}
+.ok,.ok-text{color:#0a9659!important}.warn{color:#c67b0e!important}
+
+/* Login / modal-like surfaces */
+.login-page{background:linear-gradient(135deg,#f4f8f6,#ffffff)!important}
+.login-card{background:#fff!important;border-color:#dfe7e3!important;box-shadow:0 20px 60px rgba(25,60,44,.10)!important;color:#1b2822!important}
+
+/* Charts — keep Green Holding accent but make plotting area light */
+.recharts-wrapper,.recharts-surface{background:transparent!important}
+.recharts-cartesian-grid line{stroke:#e1e8e4!important}
+.recharts-cartesian-axis-line,.recharts-cartesian-axis-tick-line{stroke:#cdd8d2!important}
+.recharts-cartesian-axis-tick text,.recharts-text{fill:#6f8178!important}
+.recharts-tooltip-wrapper .recharts-default-tooltip{background:#fff!important;border:1px solid #dce5e0!important;border-radius:10px!important;box-shadow:0 8px 24px rgba(23,51,39,.10)!important}
+.recharts-tooltip-label,.recharts-tooltip-item{color:#1f2c26!important}
+
+/* Common hard-coded dark surfaces inside pages */
+[class*="card"],[class*="panel"]{color:var(--text)}
+code,pre{background:#f1f5f3!important;color:#244236!important;border-color:#dce6e1!important}
+
+/* Scrollbars */
+*{scrollbar-color:#c8d7cf #f4f7f5}
+
+@media(max-width:900px){
+  .sidebar{box-shadow:10px 0 30px rgba(20,45,34,.12)!important}
+  .topbar{background:rgba(255,255,255,.97)!important}
+}
