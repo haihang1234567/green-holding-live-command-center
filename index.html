@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="theme-color" content="#07110d"/>
+  <title>Green Holding Live Command Center</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><div class="brand-mark">G</div><div><strong>GREEN HOLDING</strong><span>LIVE COMMAND CENTER</span></div><button class="icon mobile-only" id="closeSidebar">×</button></div>
+    <nav>
+      <a class="active" href="#overview">⌂ <span>Tổng quan</span></a>
+      <a href="#live-now">◉ <span>LIVE hiện tại</span></a>
+      <a href="live-session.html">◌ <span>Phiên LIVE</span></a>
+      <a href="#ranking">♟ <span>Teams</span></a>
+      <a href="#channels">▣ <span>Kênh TikTok</span></a>
+      <a href="#kpis">₫ <span>Doanh thu</span></a>
+      <a href="#orders-chart">▤ <span>Đơn hàng</span></a>
+      <a href="#sku">▦ <span>Sản phẩm</span></a>
+      <a href="#kpis">◎ <span>Ads</span></a>
+      <a href="#refund">↻ <span>Hoàn/Hủy</span></a>
+      <a href="#ranking">▥ <span>Báo cáo</span></a>
+      <a href="#alerts">⚠ <span>Cảnh báo</span></a>
+      <a href="team-dashboard.html">♙ <span>Dashboard Team</span></a>
+      <a href="#mock">⌘ <span>Cấu hình API</span></a>
+      <a href="#mock">⚙ <span>Cài đặt</span></a>
+    </nav>
+    <div class="sidebar-bottom"><div class="mode-pill"><span class="mode-dot"></span> MOCK MODE</div><small>DATA_PROVIDER=MOCK</small></div>
+  </aside>
+  <div class="overlay" id="overlay"></div>
+  <main class="main">
+    <header class="topbar">
+      <div class="top-left"><button class="icon menu mobile-only" id="openSidebar">☰</button><div><h1>LIVE COMMAND CENTER</h1><p>Điều hành livestream TikTok • Real-time / Near real-time</p></div></div>
+      <div class="top-actions">
+        <div class="api-status"><span></span><div><b>API STATUS</b><small>Mock Provider hoạt động</small></div></div>
+        <div class="clock"><b id="clock">--:--:--</b><small id="date">--/--/----</small></div>
+        <button class="bell">♢<span>3</span></button><div class="avatar">AD</div>
+      </div>
+    </header>
+
+    <div class="content" id="overview">
+      <div class="page-title"><div><span class="section-kicker">ADMIN DASHBOARD</span><h2>Tổng quan</h2><p>Toàn cảnh vận hành livestream • dữ liệu đang chạy từ Mock Provider</p></div><div class="page-controls"><button class="secondary">⌕ Tìm phiên LIVE</button><button class="primary">✦ Tạo báo cáo</button></div></div>
+
+      <section class="channels-grid" id="channels">
+        <article class="channel-card live" id="channel1">
+          <div class="channel-head"><div><div class="eyebrow">KÊNH TIKTOK 01</div><h2>@greenholding.01</h2></div><div class="status live" id="status1"><span></span><b>ĐANG LIVE</b></div></div>
+          <div class="channel-live-body" id="channel1LiveBody">
+            <div class="channel-meta"><span><b>Hoàng Ảnh</b><small>Team phụ trách</small></span><span><b>Ca sáng</b><small>Ca</small></span><span><b>08:30</b><small>Bắt đầu</small></span><span><b id="duration1">02:35:20</b><small>LIVE time</small></span></div>
+            <div class="channel-kpis"><span><small>GMV</small><b id="gmv1">359.081.653đ</b></span><span><small>Orders</small><b id="orders1">4.571</b></span><span><small>Ads Spend</small><b id="ads1">7.558.000đ</b></span><span><small>ROAS</small><b>47,5</b></span></div>
+          </div>
+          <div class="offline-content hidden" id="channel1Offline"><div class="offline-symbol">◉</div><div><b>Chưa có phiên LIVE</b><span>Sẵn sàng nhận tín hiệu bắt đầu phiên</span></div></div>
+          <button class="ghost" data-toggle-live="1">Dừng LIVE (Mock)</button>
+        </article>
+
+        <article class="channel-card" id="channel2">
+          <div class="channel-head"><div><div class="eyebrow">KÊNH TIKTOK 02</div><h2>@greenholding.02</h2></div><div class="status" id="status2"><span></span><b>OFFLINE</b></div></div>
+          <div class="channel-live-body hidden" id="channel2LiveBody">
+            <div class="channel-meta"><span><b>Hạo Ưng</b><small>Team phụ trách</small></span><span><b>Ca sáng</b><small>Ca</small></span><span><b>09:15</b><small>Bắt đầu</small></span><span><b>00:00:00</b><small>LIVE time</small></span></div>
+            <div class="channel-kpis"><span><small>GMV</small><b>0đ</b></span><span><small>Orders</small><b>0</b></span><span><small>Ads Spend</small><b>0đ</b></span><span><small>ROAS</small><b>0,0</b></span></div>
+          </div>
+          <div class="offline-content" id="channel2Offline"><div class="offline-symbol">◉</div><div><b>Chưa có phiên LIVE</b><span>Sẵn sàng nhận tín hiệu bắt đầu phiên</span></div></div>
+          <button class="ghost" data-toggle-live="2">Bắt đầu LIVE (Mock)</button>
+        </article>
+      </section>
+
+      <section class="kpi-grid" id="kpis">
+        <div class="kpi-card"><span class="kpi-icon">₫</span><small>TỔNG GMV HÔM NAY</small><strong>1.211.791.653đ</strong><em>↗ +18,4%</em><p>so với hôm qua</p></div>
+        <div class="kpi-card"><span class="kpi-icon">▤</span><small>TỔNG SỐ ĐƠN</small><strong>15.203</strong><em>↗ +12,7%</em><p>đơn phát sinh hôm nay</p></div>
+        <div class="kpi-card"><span class="kpi-icon">◎</span><small>TỔNG ADS SPEND</small><strong>29.633.000đ</strong><em>↗ +6,2%</em><p>ngân sách đã tiêu</p></div>
+        <div class="kpi-card"><span class="kpi-icon">◈</span><small>AOV</small><strong>79.707đ</strong><em>↗ +5,1%</em><p>giá trị đơn trung bình</p></div>
+        <div class="kpi-card"><span class="kpi-icon">%</span><small>ADS / GMV</small><strong>2,45%</strong><em class="negative">↘ -0,4%</em><p>tỷ trọng chi phí ads</p></div>
+        <div class="kpi-card"><span class="kpi-icon">↗</span><small>ROAS TỔNG</small><strong>40,8</strong><em>↗ +3,8</em><p>doanh thu / ads</p></div>
+        <div class="kpi-card"><span class="kpi-icon">↻</span><small id="netGmvLabel">GMV SAU HOÀN/HỦY • T+3H</small><strong id="netGmvValue">1.066.376.655đ</strong><em id="netGmvRate">Refund 12,0%</em><p>snapshot đang chọn</p></div>
+        <div class="kpi-card"><span class="kpi-icon">♛</span><small>TEAM DẪN ĐẦU</small><strong>Hoàng Ảnh</strong><em>🥇 #1</em><p>theo GMV hôm nay</p></div>
+      </section>
+
+      <section class="chart-grid" id="live-now">
+        <article class="panel chart-panel large"><div class="panel-head"><div><span class="section-kicker">REAL-TIME PERFORMANCE</span><h3>GMV theo thời gian</h3></div><div class="legend"><span></span>Kênh TikTok 01</div></div><div class="big-number">359,1M <small>GMV hiện tại</small></div><svg class="line-chart" viewBox="0 0 800 250"><g class="grid"><line x1="30" y1="50" x2="770" y2="50"/><line x1="30" y1="100" x2="770" y2="100"/><line x1="30" y1="150" x2="770" y2="150"/><line x1="30" y1="200" x2="770" y2="200"/></g><polyline class="line" points="30,218 72,212 114,205 156,198 198,187 240,177 282,164 324,151 366,133 408,120 450,103 492,87 534,69 576,57 618,43 660,34 702,25 744,18"/><g class="dots"><circle cx="408" cy="120" r="4"/><circle cx="576" cy="57" r="4"/><circle cx="744" cy="18" r="4"/></g></svg><div class="axis"><span>08:00</span><span>09:30</span><span>11:00</span></div></article>
+        <article class="panel" id="sku"><div class="panel-head"><div><span class="section-kicker">TOP SKU</span><h3>Sản phẩm bán chạy</h3></div><div class="icon">▦</div></div><div class="bars">
+          <div class="bar-row"><div><span>1. Serum A01</span><b>88,6M</b></div><i><u style="width:100%"><small>1.118 sp</small></u></i></div>
+          <div class="bar-row"><div><span>2. Kem B12</span><b>72,4M</b></div><i><u style="width:82%"><small>942 sp</small></u></i></div>
+          <div class="bar-row"><div><span>3. Combo C08</span><b>60,8M</b></div><i><u style="width:69%"><small>781 sp</small></u></i></div>
+          <div class="bar-row"><div><span>4. Sữa rửa mặt D05</span><b>51,3M</b></div><i><u style="width:58%"><small>652 sp</small></u></i></div>
+          <div class="bar-row"><div><span>5. Mask E03</span><b>42,7M</b></div><i><u style="width:48%"><small>598 sp</small></u></i></div>
+        </div></article>
+      </section>
+
+      <section class="chart-grid equal" id="orders-chart">
+        <article class="panel chart-panel"><div class="panel-head"><div><span class="section-kicker">ORDERS TIMELINE</span><h3>Đơn hàng theo thời gian</h3></div><div class="legend"><span></span>Orders</div></div><svg class="line-chart compact" viewBox="0 0 800 250"><g class="grid"><line x1="30" y1="50" x2="770" y2="50"/><line x1="30" y1="100" x2="770" y2="100"/><line x1="30" y1="150" x2="770" y2="150"/><line x1="30" y1="200" x2="770" y2="200"/></g><polyline class="line" points="30,221 72,214 114,208 156,198 198,185 240,174 282,160 324,149 366,130 408,117 450,102 492,87 534,69 576,55 618,44 660,34 702,25 744,15"/></svg><div class="axis"><span>08:00</span><span>09:30</span><span>11:00</span></div></article>
+        <article class="panel" id="alerts"><div class="panel-head"><div><span class="section-kicker">SMART ALERTS</span><h3>Cảnh báo gần nhất</h3></div><button class="text-btn">Xem tất cả</button></div><div class="alert-list"><div class="alert live-alert"><i>◉</i><div><b>LIVE STARTED</b><span>Kênh TikTok 01 • Hoàng Ảnh • Ca sáng</span></div><time>08:30</time></div><div class="alert warn"><i>⚠</i><div><b>GMV VELOCITY WARNING</b><span>15 phút gần nhất thấp hơn 31% so với 15 phút trước</span></div><time>09:02</time></div><div class="alert warn"><i>⚠</i><div><b>ADS WARNING</b><span>Ads Spend tăng nhanh hơn GMV trong 10 phút gần nhất</span></div><time>09:07</time></div></div></article>
+      </section>
+
+      <section class="panel refund-panel" id="refund">
+        <div class="panel-head"><div><span class="section-kicker">REFUND SNAPSHOT</span><h3>Hoàn / Hủy theo mốc thời gian</h3></div><div class="panel-actions"><label class="select-wrap">↻ <select id="snapshotSelect"><option value="0|5">Ngay sau LIVE (T+0)</option><option value="1|7.4">Sau 1 giờ</option><option value="3|12" selected>Sau 3 giờ</option><option value="6|13.1">Sau 6 giờ</option><option value="12|14">Sau 12 giờ</option><option value="24|15">Sau 24 giờ</option><option value="48|16.4">Sau 48 giờ</option><option value="FINAL|18">Final</option></select></label><button class="primary" id="compareToggle">⌁ So sánh các mốc</button></div></div>
+        <div class="refund-kpis"><div><small>MỐC ĐÁNH GIÁ</small><b id="refundMark">T+3H</b></div><div><small>GMV BAN ĐẦU</small><b>500.000.000đ</b></div><div><small>GIÁ TRỊ HOÀN/HỦY</small><b id="refundAmount">60.000.000đ</b></div><div><small>TỶ LỆ HOÀN/HỦY</small><b class="amber" id="refundRate">12,0%</b></div><div><small>DOANH THU GIỮ</small><b id="retainedRevenue">440.000.000đ</b></div></div>
+        <div class="refund-timeline" id="refundTimeline"><div><b>T+0</b><span>5,0%</span><i><u style="width:25%"></u></i></div><div><b>T+1H</b><span>7,4%</span><i><u style="width:37%"></u></i></div><div><b>T+3H</b><span>12,0%</span><i><u style="width:60%"></u></i></div><div><b>T+6H</b><span>13,1%</span><i><u style="width:65.5%"></u></i></div><div><b>T+12H</b><span>14,0%</span><i><u style="width:70%"></u></i></div><div><b>T+24H</b><span>15,0%</span><i><u style="width:75%"></u></i></div><div><b>T+48H</b><span>16,4%</span><i><u style="width:82%"></u></i></div><div><b>FINAL</b><span>18,0%</span><i><u style="width:90%"></u></i></div></div>
+      </section>
+
+      <section class="panel table-panel" id="ranking"><div class="panel-head"><div><span class="section-kicker">TEAM PERFORMANCE</span><h3>Ranking 4 tiểu ban</h3></div><div class="filters"><button>☷ 10/08/2026</button><button>Tất cả ca ▾</button><button id="rankingSnapshot">T+3H ▾</button></div></div><div class="table-scroll"><table><thead><tr><th>#</th><th>TEAM</th><th>CA</th><th>GMV</th><th>ORDERS</th><th>AOV</th><th>ADS</th><th>ADS/GMV</th><th>ROAS</th><th>REFUND</th><th>NET REVENUE</th><th>GMV/HOUR</th></tr></thead><tbody><tr><td>🥇</td><td><b>Hoàng Ảnh</b></td><td>Ca sáng</td><td><b>359.081.653đ</b></td><td>4.571</td><td>78.556đ</td><td>7.558.000đ</td><td>2,10%</td><td><b>47,5</b></td><td><span class="badge green">10,6%</span></td><td>321.018.998đ</td><td>112.212.000đ</td></tr><tr><td>🥈</td><td><b>Hạo Ưng</b></td><td>Ca sáng</td><td><b>318.420.000đ</b></td><td>3.924</td><td>81.147đ</td><td>7.890.000đ</td><td>2,48%</td><td><b>40,4</b></td><td><span class="badge green">11,3%</span></td><td>282.437.000đ</td><td>106.140.000đ</td></tr><tr><td>🥉</td><td><b>Long Tài</b></td><td>Ca tối</td><td><b>284.760.000đ</b></td><td>3.510</td><td>81.128đ</td><td>7.215.000đ</td><td>2,53%</td><td><b>39,5</b></td><td><span class="badge amber-b">12,0%</span></td><td>250.588.800đ</td><td>83.752.941đ</td></tr><tr><td>4</td><td><b>Lam Dần</b></td><td>Ca tối</td><td><b>249.530.000đ</b></td><td>3.198</td><td>78.027đ</td><td>6.970.000đ</td><td>2,79%</td><td><b>35,8</b></td><td><span class="badge amber-b">12,7%</span></td><td>217.838.000đ</td><td>80.493.548đ</td></tr></tbody></table></div></section>
+
+      <section class="panel mock-panel" id="mock"><div class="panel-head"><div><span class="section-kicker">DEVELOPER / MOCK CONTROL</span><h3>Giả lập dữ liệu trước khi có API</h3></div><div class="mode-pill"><span class="mode-dot"></span> MOCK MODE</div></div><div class="mock-grid"><div class="mock-group"><b>Kênh TikTok 01</b><button class="mock-start" data-start="1">⚡ START LIVE</button><button data-stop="1">STOP LIVE</button></div><div class="mock-group"><b>Kênh TikTok 02</b><button class="mock-start" data-start="2">⚡ START LIVE</button><button data-stop="2">STOP LIVE</button></div><div class="mock-group wide"><b>Giả lập giao dịch</b><button data-action="order">＋ ADD ORDER</button><button data-action="orders10">＋10 ORDERS</button><button data-action="gmv">↗ INCREASE GMV</button><button data-action="ads">◎ ADS SPEND</button><button data-action="cancel">× CANCEL ORDER</button><button data-action="refund">↻ REFUND ORDER</button></div></div></section>
+    </div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
