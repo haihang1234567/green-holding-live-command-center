@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import jwt
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine
@@ -41,7 +45,12 @@ for router in (auth.router, dashboard.router, sessions.router, admin.router, dat
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.app_name, "data_provider": settings.data_provider.upper(), "live_status_provider": settings.live_status_provider.upper()}
+    return {
+        "status": "ok",
+        "app": settings.app_name,
+        "data_provider": settings.data_provider.upper(),
+        "live_status_provider": settings.live_status_provider.upper(),
+    }
 
 
 @app.websocket("/ws/dashboard")
@@ -64,3 +73,20 @@ async def dashboard_ws(websocket: WebSocket):
         await manager.disconnect(websocket)
     except Exception:
         await manager.disconnect(websocket)
+
+
+# Production/Render mode: the root Dockerfile builds the React/Vite frontend
+# and copies it into FRONTEND_DIST. Serving it from FastAPI keeps UI, REST API,
+# and WebSocket on one HTTPS origin and avoids cross-origin configuration.
+frontend_dist = Path(os.getenv("FRONTEND_DIST", "/app/frontend-dist")).resolve()
+assets_dir = frontend_dist / "assets"
+if frontend_dist.exists() and (frontend_dist / "index.html").exists():
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        candidate = (frontend_dist / full_path).resolve()
+        if candidate != frontend_dist and frontend_dist in candidate.parents and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(frontend_dist / "index.html")
