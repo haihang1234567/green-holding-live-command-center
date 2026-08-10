@@ -1,25 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import './styles.css'
-import './light-theme.css'
+import { BrowserRouter,Navigate,Route,Routes } from 'react-router-dom'
+import './styles.css';import './light-theme.css';import './monitor-theme.css'
 import { token } from './lib/api'
-import Layout from './components/Layout'
-import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import Sessions from './pages/Sessions'
-import SessionDetail from './pages/SessionDetail'
-import Teams from './pages/Teams'
-import Channels from './pages/Channels'
-import Settings from './pages/Settings'
-import MockControl from './pages/MockControl'
-import DataPage from './pages/DataPage'
-import Alerts from './pages/Alerts'
-import Refunds from './pages/Refunds'
-import Reports from './pages/Reports'
-import Users from './pages/Users'
-import LiveControl from './pages/LiveControl'
-
-function Guard(){return token()?<Layout/>:<Navigate to="/login" replace/>}
-function App(){return <BrowserRouter><Routes><Route path="/login" element={<Login/>}/><Route element={<Guard/>}><Route index element={<Dashboard/>}/><Route path="live" element={<LiveControl/>}/><Route path="sessions" element={<Sessions/>}/><Route path="sessions/:id" element={<SessionDetail/>}/><Route path="teams" element={<Teams/>}/><Route path="channels" element={<Channels/>}/><Route path="orders" element={<DataPage kind="orders"/>}/><Route path="products" element={<DataPage kind="products"/>}/><Route path="ads" element={<DataPage kind="ads"/>}/><Route path="refunds" element={<Refunds/>}/><Route path="reports" element={<Reports/>}/><Route path="alerts" element={<Alerts/>}/><Route path="mock" element={<MockControl/>}/><Route path="users" element={<Users/>}/><Route path="settings" element={<Settings/>}/></Route><Route path="*" element={<Navigate to="/" replace/>}/></Routes></BrowserRouter>}
-ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>)
+import Layout from './components/Layout';import Login from './pages/Login';import Dashboard from './pages/Dashboard';import Sessions from './pages/Sessions';import SessionDetail from './pages/SessionDetail';import Teams from './pages/Teams';import Channels from './pages/Channels';import Settings from './pages/Settings';import DataPage from './pages/DataPage';import Alerts from './pages/Alerts';import Refunds from './pages/Refunds';import Reports from './pages/Reports';import Users from './pages/Users';import LiveControl from './pages/LiveControl'
+function Guard(){return token()?<Layout/>:<Navigate to="/login" replace/>}function App(){return <BrowserRouter><Routes><Route path="/login" element={<Login/>}/><Route element={<Guard/>}><Route index element={<Dashboard/>}/><Route path="live" element={<LiveControl/>}/><Route path="sessions" element={<Sessions/>}/><Route path="sessions/:id" element={<SessionDetail/>}/><Route path="teams" element={<Teams/>}/><Route path="channels" element={<Channels/>}/><Route path="orders" element={<DataPage kind="orders"/>}/><Route path="products" element={<DataPage kind="products"/>}/><Route path="ads" element={<DataPage kind="ads"/>}/><Route path="refunds" element={<Refunds/>}/><Route path="reports" element={<Reports/>}/><Route path="alerts" element={<Alerts/>}/><Route path="users" element={<Users/>}/><Route path="settings" element={<Settings/>}/></Route><Route path="*" element={<Navigate to="/" replace/>}/></Routes></BrowserRouter>}ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>)

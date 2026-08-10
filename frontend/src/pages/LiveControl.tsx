@@ -1,49 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
-import { api, connectDashboardWS } from '../lib/api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { api, connectDashboardWS, user } from '../lib/api'
 import { duration, money, number } from '../lib/format'
-import { Bell, BellRing, Radio, RefreshCw, ShieldCheck, Wifi } from 'lucide-react'
+import { Bell, BellRing, CheckCircle2, Clock3, Radio, RefreshCw, Wifi } from 'lucide-react'
 import { Link } from 'react-router-dom'
-
+function fmtTime(value?:string|null){if(!value)return'Chưa chạy';try{return new Date(value).toLocaleString('vi-VN')}catch{return String(value)}}
 export default function LiveControl(){
- const [channels,setChannels]=useState<any[]>([])
- const [msg,setMsg]=useState('')
- const [notify,setNotify]=useState(typeof Notification!=='undefined'?Notification.permission:'unsupported')
- const load=useCallback(()=>api('/dashboard/overview').then((d:any)=>setChannels(d.channels)),[])
-
- useEffect(()=>{
-   load()
-   const stop=connectDashboardWS((event,payload)=>{
-     if(event==='channel.status'){
-       load()
-       const title=payload.status==='LIVE'?'🔴 PHÁT HIỆN LIVE':'⏹️ LIVE ĐÃ KẾT THÚC'
-       const body=`Kênh ${payload.channel_id} • hệ thống đã ${payload.status==='LIVE'?'tự tạo phiên và bắt đầu ghi nhận số liệu':'final-sync, chốt phiên và chuyển sang theo dõi hoàn/hủy'}`
-       setMsg(`${title} • ${body}`)
-     }
-     if(event==='session.updated') load()
-   })
-   const poll=setInterval(load,30000)
-   return()=>{stop();clearInterval(poll)}
- },[load])
-
- async function enableNotifications(){
-   if(typeof Notification==='undefined'){setMsg('Trình duyệt này không hỗ trợ thông báo desktop');return}
-   const p=await Notification.requestPermission();setNotify(p)
-   setMsg(p==='granted'?'Đã bật thông báo LIVE trên toàn dashboard':'Chưa được cấp quyền thông báo')
- }
-
- return <>
-  <div className="page-title"><div><span className="section-kicker">AUTOMATIC LIVE MONITOR</span><h2>Giám sát LIVE 2 Shop</h2><p>Không phát LIVE từ dashboard. TikTok bắt đầu/kết thúc LIVE ở bên ngoài; server tự kiểm tra tín hiệu mỗi 3 phút và tự tạo/chốt phiên.</p></div><div className="page-actions"><button className="secondary" onClick={load}><RefreshCw size={15}/>Làm mới</button><button className="primary" onClick={enableNotifications}>{notify==='granted'?<BellRing size={15}/>:<Bell size={15}/>} {notify==='granted'?'Thông báo đã bật':'Bật thông báo'}</button></div></div>
-  {msg&&<div className="notice">{msg}</div>}
-
-  <section className="panel live-monitor-info"><div className="panel-head"><div><span className="section-kicker">SERVER WORKFLOW</span><h3>Luồng tự động</h3></div><span className="mode-badge real">3 PHÚT / LẦN</span></div><div className="optional-grid"><div><Wifi size={18}/><small>1. DETECT</small><b>Kiểm tra trạng thái LIVE từng shop</b></div><div><Radio size={18}/><small>2. START</small><b>Tự tạo session khi phát hiện LIVE</b></div><div><RefreshCw size={18}/><small>3. SYNC</small><b>Đồng bộ GMV • đơn • Ads mỗi 180s</b></div><div><ShieldCheck size={18}/><small>4. END</small><b>Final-sync rồi tự chốt khi TikTok OFFLINE</b></div><div><Bell size={18}/><small>5. REFUND</small><b>T+0 • 1H • 3H • 6H • 12H • 24H • 48H • FINAL</b></div></div></section>
-
-  <div className="cards-2">{channels.map((ch:any)=><article className={`panel mock-card ${ch.status==='LIVE'?'live':''}`} key={ch.id}>
-    <div className="panel-head"><div><span className="section-kicker">{ch.id===1?'SHOP 1':'SHOP 2'} • {ch.name}</span><h3>{ch.handle}</h3></div><span className={`badge ${ch.status.toLowerCase()}`}>{ch.status==='LIVE'?'ĐANG LIVE':'OFFLINE'}</span></div>
-    {ch.session?<>
-      <div className="notice success-notice">🔴 Đã bắt được tín hiệu LIVE • hệ thống đang tự ghi nhận dữ liệu</div>
-      <div className="mock-stats"><div><small>TEAM</small><b>{ch.session.team_name}</b></div><div><small>LIVE TIME</small><b>{duration(ch.session.duration_seconds)}</b></div><div><small>GMV</small><b>{money(ch.session.gmv)}</b></div><div><small>ORDERS</small><b>{number(ch.session.orders)}</b></div></div>
-      <div className="inline-actions"><Link className="primary action-link" to={`/sessions/${ch.session.id}`}>Xem phiên đang ghi nhận</Link></div>
-    </>:<div className="offline-content"><Radio size={32}/><div><b>Đang chờ tín hiệu LIVE từ TikTok</b><span>Không cần thao tác trên dashboard • server kiểm tra độc lập shop này mỗi 3 phút</span></div></div>}
-  </article>)}</div>
- </>
+ const[overview,setOverview]=useState<any>(null);const[monitor,setMonitor]=useState<any>(null);const[message,setMessage]=useState('');const[notify,setNotify]=useState(typeof Notification!=='undefined'?Notification.permission:'unsupported');const isAdmin=user()?.role==='ADMIN'
+ const load=useCallback(async()=>{const d:any=await api('/dashboard/overview');setOverview(d);if(isAdmin){try{setMonitor(await api('/integrations/monitor/status'))}catch{}}},[isAdmin])
+ useEffect(()=>{load();const stop=connectDashboardWS((event,payload)=>{if(['channel.status','session.updated','refund.updated'].includes(event))load();if(event==='channel.status'){const started=payload.status==='LIVE';setMessage(started?`🔴 ${payload.shop||payload.channel_name||'TikTok'} đã LIVE — hệ thống đã tự tạo phiên và bắt đầu ghi nhận.`:`⏹️ ${payload.shop||payload.channel_name||'TikTok'} đã kết thúc LIVE — hệ thống đã final sync và tạo T+0.`)}});const timer=window.setInterval(load,30000);return()=>{stop();window.clearInterval(timer)}},[load])
+ async function enableNotifications(){if(typeof Notification==='undefined'){setMessage('Trình duyệt không hỗ trợ thông báo desktop.');return}const p=await Notification.requestPermission();setNotify(p);setMessage(p==='granted'?'Đã bật thông báo LIVE trên trình duyệt.':'Chưa được cấp quyền thông báo.')}
+ const nextCheck=useMemo(()=>!monitor?.last_cycle_at?null:new Date(new Date(monitor.last_cycle_at).getTime()+(monitor.polling_interval_seconds||180)*1000),[monitor])
+ if(!overview)return <div className="page-loader">Đang tải giám sát LIVE...</div>
+ return <><div className="page-title"><div><span className="section-kicker">TWO-SHOP AUTO MONITOR</span><h2>Giám sát LIVE tự động</h2><p>Không phát LIVE từ dashboard. Server chỉ nghe tín hiệu từ 2 TikTok Shop, tự tạo/chốt phiên và đồng bộ dữ liệu đúng chu kỳ 3 phút.</p></div><div className="page-actions"><span className={`mode-badge ${overview.mode==='MOCK'?'mock':'real'}`}>{overview.mode==='MOCK'?'DEMO / MOCK':'API THẬT'}</span><button className="secondary" onClick={load}><RefreshCw size={15}/>Làm mới</button><button className="primary" onClick={enableNotifications}>{notify==='granted'?<BellRing size={15}/>:<Bell size={15}/>} {notify==='granted'?'Thông báo đã bật':'Bật thông báo'}</button></div></div>{message&&<div className="notice">{message}</div>}
+ <section className="panel live-monitor-info"><div className="panel-head"><div><span className="section-kicker">AUTOMATION</span><h3>Một state machine duy nhất • 180 giây/lần</h3></div><span className="mode-badge real">3 PHÚT / LẦN</span></div><div className="optional-grid"><div><Wifi size={18}/><small>01 • DETECT</small><b>Kiểm tra Shop 1 và Shop 2 độc lập</b></div><div><Radio size={18}/><small>02 • START</small><b>Thấy LIVE → tự tạo phiên + báo động</b></div><div><RefreshCw size={18}/><small>03 • SYNC</small><b>Orders • GMV • Ads • LIVE metrics</b></div><div><CheckCircle2 size={18}/><small>04 • END</small><b>OFFLINE → final sync rồi mới đóng phiên</b></div><div><Clock3 size={18}/><small>05 • REFUND</small><b>T+0 • 1H • 3H • 6H • 12H • 24H • 48H • FINAL</b></div></div>{isAdmin&&<div className="monitor-meta"><span>Lần kiểm tra gần nhất: <b>{fmtTime(monitor?.last_cycle_at)}</b></span><span>Lần kế tiếp: <b>{nextCheck?nextCheck.toLocaleString('vi-VN'):'Chưa xác định'}</b></span></div>}</section>
+ <div className="cards-2">{overview.channels.map((ch:any)=>{const row=monitor?.channels?.find?.((x:any)=>x.channel_id===ch.id);const runtime=row?.runtime||{};return <article className={`panel monitor-shop ${ch.status==='LIVE'?'live':''}`} key={ch.id}><div className="panel-head"><div><span className="section-kicker">{row?.name||`SHOP ${ch.id}`} • {ch.name}</span><h3>{ch.handle}</h3></div><span className={`badge ${ch.status.toLowerCase()}`}>{ch.status==='LIVE'?'🔴 ĐANG LIVE':'OFFLINE'}</span></div>{isAdmin&&<div className="signal-strip"><span>Tín hiệu API: <b>{runtime.signal||'CHƯA KIỂM TRA'}</b></span><span>Kiểm tra lúc: <b>{fmtTime(runtime.checked_at)}</b></span>{runtime.error&&<span className="warn">Lỗi: {runtime.error}</span>}</div>}{ch.session?<><div className="notice success-notice">🔴 Đã bắt tín hiệu LIVE • hệ thống đang tự ghi nhận số liệu</div><div className="mock-stats"><div><small>TEAM</small><b>{ch.session.team_name}</b></div><div><small>LIVE TIME</small><b>{duration(ch.session.duration_seconds)}</b></div><div><small>GMV</small><b>{money(ch.session.gmv)}</b></div><div><small>ORDERS</small><b>{number(ch.session.orders)}</b></div><div><small>ADS</small><b>{money(ch.session.ads_spend)}</b></div><div><small>ROAS</small><b>{Number(ch.session.roas||0).toFixed(1)}</b></div></div><Link className="primary action-link" to={`/sessions/${ch.session.id}`}>Xem chi tiết phiên đang ghi nhận</Link></>:<div className="offline-content"><Radio size={34}/><div><b>Đang chờ TikTok phát LIVE</b><span>Không cần bấm Start/Stop trên dashboard. Server tự kiểm tra shop này mỗi 180 giây.</span></div></div>}</article>})}</div></>
 }
