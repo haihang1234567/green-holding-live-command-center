@@ -1,0 +1,8 @@
+{
+  "name": "green-holding-live-command-center-ui",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start": "python3 -m http.server 8080"
+  }
+}
