@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -137,11 +138,28 @@ def apply_profile(channel: Channel, p: ShopProfile) -> None:
 
 
 def _shop_settings(p: ShopProfile) -> Settings:
-    return Settings(tiktok_shop_base_url=p.shop_base_url,tiktok_shop_auth_url=p.auth_url,tiktok_shop_app_key=p.app_key,tiktok_shop_app_secret=p.app_secret,tiktok_shop_access_token=p.access_token,tiktok_shop_refresh_token=p.refresh_token,tiktok_shop_access_tokens_json="{}",tiktok_shop_refresh_tokens_json="{}")
+    return Settings(
+        tiktok_shop_base_url=p.shop_base_url,
+        tiktok_shop_auth_url=p.auth_url,
+        tiktok_shop_app_key=p.app_key,
+        tiktok_shop_app_secret=p.app_secret,
+        tiktok_shop_access_token=p.access_token,
+        tiktok_shop_refresh_token=p.refresh_token,
+        tiktok_shop_access_tokens_json="{}",
+        tiktok_shop_refresh_tokens_json="{}",
+    )
 
 
 def _ads_settings(p: ShopProfile) -> Settings:
-    return Settings(tiktok_ads_base_url=p.ads_base_url,tiktok_ads_app_id=p.ads_app_id,tiktok_ads_secret=p.ads_secret,tiktok_ads_access_token=p.ads_access_token,tiktok_ads_metrics=settings.tiktok_ads_metrics,tiktok_ads_revenue_metric=settings.tiktok_ads_revenue_metric,tiktok_ads_roas_metric=settings.tiktok_ads_roas_metric)
+    return Settings(
+        tiktok_ads_base_url=p.ads_base_url,
+        tiktok_ads_app_id=p.ads_app_id,
+        tiktok_ads_secret=p.ads_secret,
+        tiktok_ads_access_token=p.ads_access_token,
+        tiktok_ads_metrics=settings.tiktok_ads_metrics,
+        tiktok_ads_revenue_metric=settings.tiktok_ads_revenue_metric,
+        tiktok_ads_roas_metric=settings.tiktok_ads_roas_metric,
+    )
 
 
 _shop_clients: dict[int, TikTokShopProvider] = {}
@@ -149,59 +167,119 @@ _ads_clients: dict[int, TikTokAdsProvider] = {}
 
 
 def shop_client(channel: Channel) -> tuple[TikTokShopProvider, ShopProfile]:
-    p = profile_for_channel(channel); apply_profile(channel, p)
-    if p.slot not in _shop_clients: _shop_clients[p.slot] = TikTokShopProvider(_shop_settings(p))
+    p = profile_for_channel(channel)
+    apply_profile(channel, p)
+    if p.slot not in _shop_clients:
+        _shop_clients[p.slot] = TikTokShopProvider(_shop_settings(p))
     return _shop_clients[p.slot], p
 
 
 def ads_client(channel: Channel) -> tuple[TikTokAdsProvider, ShopProfile]:
-    p = profile_for_channel(channel); apply_profile(channel, p)
-    if p.slot not in _ads_clients: _ads_clients[p.slot] = TikTokAdsProvider(_ads_settings(p))
+    p = profile_for_channel(channel)
+    apply_profile(channel, p)
+    if p.slot not in _ads_clients:
+        _ads_clients[p.slot] = TikTokAdsProvider(_ads_settings(p))
     return _ads_clients[p.slot], p
 
 
-async def _generic_request(*,url:str,method:str,auth_mode:str,token:str,params:dict[str,Any])->dict[str,Any]:
-    headers: dict[str,str] = {}; mode=auth_mode.upper()
-    if mode=="BEARER" and token: headers["Authorization"]=f"Bearer {token}"
-    elif mode in {"X_TTS","X-TTS"} and token: headers["x-tts-access-token"]=token
+async def _generic_request(*, url: str, method: str, auth_mode: str, token: str, params: dict[str, Any]) -> dict[str, Any]:
+    headers: dict[str, str] = {}
+    mode = auth_mode.upper()
+    if mode == "BEARER" and token:
+        headers["Authorization"] = f"Bearer {token}"
+    elif mode in {"X_TTS", "X-TTS"} and token:
+        headers["x-tts-access-token"] = token
     async with httpx.AsyncClient(timeout=25) as client:
-        response=await client.request(method.upper(),url,params=params,headers=headers); response.raise_for_status(); payload=response.json()
-    return payload if isinstance(payload,dict) else {"data":payload}
+        response = await client.request(method.upper(), url, params=params, headers=headers)
+        response.raise_for_status()
+        payload = response.json()
+    return payload if isinstance(payload, dict) else {"data": payload}
 
 
-async def _profile_request(channel:Channel,*,url:str,method:str,auth_mode:str,token:str,params:dict[str,Any])->dict[str,Any]:
-    if auth_mode.upper()=="TIKTOK_SHOP":
-        client,_=shop_client(channel); parsed=urlparse(url); path=parsed.path if parsed.scheme else url
-        return await client._request(method,path,channel,query=params)
-    return await _generic_request(url=url,method=method,auth_mode=auth_mode,token=token,params=params)
+async def _profile_request(channel: Channel, *, url: str, method: str, auth_mode: str, token: str, params: dict[str, Any]) -> dict[str, Any]:
+    if auth_mode.upper() == "TIKTOK_SHOP":
+        client, _ = shop_client(channel)
+        parsed = urlparse(url)
+        path = parsed.path if parsed.scheme else url
+        return await client._request(method, path, channel, query=params)
+    return await _generic_request(url=url, method=method, auth_mode=auth_mode, token=token, params=params)
 
 
 async def get_live_signal(channel: Channel) -> dict[str, Any]:
-    p=profile_for_channel(channel); apply_profile(channel,p)
-    if settings.live_status_provider.upper()=="MOCK":
-        return {"status":"LIVE" if channel.mock_is_live else "OFFLINE","live_room_id":None,"raw":{"mock":True}}
+    p = profile_for_channel(channel)
+    apply_profile(channel, p)
+    if settings.live_status_provider.upper() == "MOCK":
+        return {"status": "LIVE" if channel.mock_is_live else "OFFLINE", "live_room_id": None, "raw": {"mock": True}}
     if not p.live_status_url:
-        return {"status":"UNKNOWN","live_room_id":None,"raw":{"reason":"live_status_url_missing"}}
-    key=p.live_source_key or p.shop_id or p.shop_cipher or channel.handle or str(channel.id)
-    params={p.live_status_channel_param:key} if p.live_status_channel_param else {}
-    payload=await _profile_request(channel,url=p.live_status_url,method=p.live_status_method,auth_mode=p.live_status_auth_mode,token=p.live_status_token or p.access_token,params=params)
-    value=_path(payload,p.live_status_json_path); room_id=_path(payload,p.live_room_id_json_path) if p.live_room_id_json_path else None
-    if p.live_status_mode=="NONEMPTY": status="LIVE" if bool(value) else "OFFLINE"
+        return {"status": "UNKNOWN", "live_room_id": None, "raw": {"reason": "live_status_url_missing"}}
+    key = p.live_source_key or p.shop_id or p.shop_cipher or channel.handle or str(channel.id)
+    params = {p.live_status_channel_param: key} if p.live_status_channel_param else {}
+    payload = await _profile_request(
+        channel,
+        url=p.live_status_url,
+        method=p.live_status_method,
+        auth_mode=p.live_status_auth_mode,
+        token=p.live_status_token or p.access_token,
+        params=params,
+    )
+    value = _path(payload, p.live_status_json_path)
+    room_id = _path(payload, p.live_room_id_json_path) if p.live_room_id_json_path else None
+    if p.live_status_mode == "NONEMPTY":
+        status = "LIVE" if bool(value) else "OFFLINE"
     else:
-        text=str(value).strip().upper(); status="LIVE" if text==p.live_value.upper() else "OFFLINE" if text==p.offline_value.upper() else "UNKNOWN"
-    return {"status":status,"live_room_id":str(room_id) if room_id not in (None,"") else None,"raw":payload}
+        text = str(value).strip().upper()
+        status = "LIVE" if text == p.live_value.upper() else "OFFLINE" if text == p.offline_value.upper() else "UNKNOWN"
+    return {"status": status, "live_room_id": str(room_id) if room_id not in (None, "") else None, "raw": payload}
 
 
 async def get_live_metrics(channel: Channel, live_room_id: str | None) -> dict[str, Any] | None:
-    p=profile_for_channel(channel)
-    if not p.live_metrics_url: return None
-    key=live_room_id or p.live_source_key or p.shop_id or p.shop_cipher or channel.handle or str(channel.id)
-    params={p.live_metrics_room_param:key} if p.live_metrics_room_param else {}
-    payload=await _profile_request(channel,url=p.live_metrics_url,method=p.live_metrics_method,auth_mode=p.live_metrics_auth_mode,token=p.live_metrics_token or p.access_token,params=params)
-    values:dict[str,Any]={"raw":payload}
-    for metric,dotted in p.live_metric_paths.items(): values[metric]=_path(payload,dotted)
+    p = profile_for_channel(channel)
+    if not p.live_metrics_url:
+        return None
+    key = live_room_id or p.live_source_key or p.shop_id or p.shop_cipher or channel.handle or str(channel.id)
+    params = {p.live_metrics_room_param: key} if p.live_metrics_room_param else {}
+    payload = await _profile_request(
+        channel,
+        url=p.live_metrics_url,
+        method=p.live_metrics_method,
+        auth_mode=p.live_metrics_auth_mode,
+        token=p.live_metrics_token or p.access_token,
+        params=params,
+    )
+    values: dict[str, Any] = {"raw": payload}
+    for metric, dotted in p.live_metric_paths.items():
+        values[metric] = _path(payload, dotted)
     return values
 
 
-def normalized_live_metric(values:dict[str,Any],key:str,*,integer:bool=False)->int|float|None:
-    n=_number(values.get(key)); return None if n is None else int(n) if integer else n
+async def get_affiliate_orders(channel: Channel, start: datetime, end: datetime) -> list[dict[str, Any]]:
+    """Fetch seller affiliate orders with TikTok's content attribution.
+
+    Requires scope `seller.affiliate_collaboration.read`. The returned SKU objects
+    include `content_type` and `content_id`, which are the authoritative fields used
+    to distinguish LIVE from VIDEO/SHOP/LINKSHARE/etc.
+    """
+    client, _ = shop_client(channel)
+    path = "/affiliate_seller/202410/orders/search"
+    page_token: str | None = None
+    output: list[dict[str, Any]] = []
+    for _ in range(20):
+        query: dict[str, Any] = {"page_size": 100}
+        if page_token:
+            query["page_token"] = page_token
+        body = {
+            "create_time_ge": int(start.timestamp()),
+            "create_time_lt": int(end.timestamp()) + 1,
+        }
+        payload = await client._request("POST", path, channel, query=query, body=body)
+        data = payload.get("data") or {}
+        output.extend(data.get("orders") or [])
+        page_token = data.get("next_page_token")
+        if not page_token:
+            break
+    return output
+
+
+def normalized_live_metric(values: dict[str, Any], key: str, *, integer: bool = False) -> int | float | None:
+    n = _number(values.get(key))
+    return None if n is None else int(n) if integer else n
