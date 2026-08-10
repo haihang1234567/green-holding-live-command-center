@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.db import get_db
@@ -11,37 +11,61 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(requir
 
 def serialize_session(db: Session, s: LiveSession, snapshot_type: str = "T3H"):
     snap = get_refund_snapshot(db, s.id, snapshot_type)
-    return {
+    data = {
         "id": s.id, "session_code": s.session_code,
         "channel_id": s.channel_id, "channel_name": s.channel.name,
         "team_id": s.team_id, "team_name": s.team.name,
         "shift": s.shift, "started_at": s.started_at, "ended_at": s.ended_at,
         "status": s.status, "metrics": session_metrics(s, snap),
+        "refund_snapshot_available": snap is not None,
     }
+    return data
 
 
-def _ranking(db: Session, snapshot_type: str):
+def _filtered_sessions(db: Session, team_id: int | None = None, channel_id: int | None = None, shift: str | None = None, day: date | None = None, date_from: date | None = None, date_to: date | None = None):
+    q = db.query(LiveSession)
+    if team_id: q = q.filter(LiveSession.team_id == team_id)
+    if channel_id: q = q.filter(LiveSession.channel_id == channel_id)
+    if shift: q = q.filter(LiveSession.shift == shift.upper())
+    if day:
+        q = q.filter(LiveSession.started_at >= datetime.combine(day, time.min).replace(tzinfo=timezone.utc), LiveSession.started_at <= datetime.combine(day, time.max).replace(tzinfo=timezone.utc))
+    else:
+        if date_from: q = q.filter(LiveSession.started_at >= datetime.combine(date_from, time.min).replace(tzinfo=timezone.utc))
+        if date_to: q = q.filter(LiveSession.started_at <= datetime.combine(date_to, time.max).replace(tzinfo=timezone.utc))
+    return q
+
+
+def _ranking(db: Session, snapshot_type: str, team_id: int | None = None, channel_id: int | None = None, shift: str | None = None, day: date | None = None, date_from: date | None = None, date_to: date | None = None):
     rows = []
-    for team in db.query(Team).order_by(Team.id).all():
-        sessions = db.query(LiveSession).filter(LiveSession.team_id == team.id).all()
-        if not sessions:
-            continue
+    teams = db.query(Team).filter(Team.id == team_id).all() if team_id else db.query(Team).order_by(Team.id).all()
+    for team in teams:
+        sessions = _filtered_sessions(db, team.id, channel_id, shift, day, date_from, date_to).all()
+        if not sessions: continue
         gmv = orders = ads = net = refund_loss = 0
         hours = 0.0
+        snapshot_count = 0
         for s in sessions:
-            m = session_metrics(s, get_refund_snapshot(db, s.id, snapshot_type))
-            gmv += m["gmv"]; orders += m["orders"]; ads += m["ads_spend"]; net += m["net_revenue"]
-            refund_loss += max(m["gmv"] - m["net_revenue"], 0)
+            snap = get_refund_snapshot(db, s.id, snapshot_type)
+            m = session_metrics(s, snap)
+            gmv += m["gmv"]; orders += m["orders"]; ads += m["ads_spend"]
             hours += max(m["duration_seconds"] / 3600, 1 / 60)
+            if snap:
+                snapshot_count += 1
+                net += int(snap.net_revenue or 0)
+                refund_loss += max(m["gmv"] - int(snap.net_revenue or 0), 0)
+        refund_complete = snapshot_count == len(sessions)
         rows.append({
             "team_id": team.id, "team_name": team.name, "gmv": gmv, "orders": orders,
             "aov": round(gmv / orders) if orders else 0, "ads_spend": ads,
             "ads_gmv_pct": round(ads / gmv * 100, 2) if gmv else 0,
             "roas": round(gmv / ads, 2) if ads else 0,
-            "refund_rate": round(refund_loss / gmv * 100, 2) if gmv else 0,
-            "net_revenue": net, "gmv_per_hour": round(gmv / hours) if hours else 0,
+            "refund_rate": round(refund_loss / gmv * 100, 2) if (gmv and refund_complete) else None,
+            "net_revenue": net if refund_complete else None,
+            "refund_snapshot_available": refund_complete,
+            "gmv_per_hour": round(gmv / hours) if hours else 0,
+            "sessions": len(sessions),
         })
-    rows.sort(key=lambda x: x["net_revenue"], reverse=True)
+    rows.sort(key=lambda x: (x["net_revenue"] is not None, x["net_revenue"] or x["gmv"]), reverse=True)
     for i, row in enumerate(rows, 1): row["rank"] = i
     return rows
 
@@ -50,20 +74,26 @@ def _ranking(db: Session, snapshot_type: str):
 def overview(snapshot_type: str = Query("T3H"), db: Session = Depends(get_db)):
     if snapshot_type not in SNAPSHOT_ORDER: snapshot_type = "T3H"
     today = datetime.now(timezone.utc).date()
-    sessions = db.query(LiveSession).all()
+    sessions = db.query(LiveSession).order_by(LiveSession.started_at.desc()).all()
     live = [s for s in sessions if s.status == "LIVE"]
     today_sessions = [s for s in sessions if s.started_at.date() == today]
     base_sessions = today_sessions if today_sessions else sessions[:4]
-    totals = {"gmv": 0, "orders": 0, "ads_spend": 0, "net_revenue": 0}
-    refund_loss = 0
+    totals = {"gmv": 0, "orders": 0, "ads_spend": 0}
+    net = refund_loss = 0
+    complete = True
     for s in base_sessions:
-        m = session_metrics(s, get_refund_snapshot(db, s.id, snapshot_type))
-        for key in ["gmv", "orders", "ads_spend", "net_revenue"]: totals[key] += m[key]
-        refund_loss += max(m["gmv"] - m["net_revenue"], 0)
+        snap = get_refund_snapshot(db, s.id, snapshot_type)
+        m = session_metrics(s, snap)
+        totals["gmv"] += m["gmv"]; totals["orders"] += m["orders"]; totals["ads_spend"] += m["ads_spend"]
+        if snap:
+            net += int(snap.net_revenue or 0); refund_loss += max(m["gmv"] - int(snap.net_revenue or 0), 0)
+        else: complete = False
+    totals["net_revenue"] = net if complete and base_sessions else None
     totals["aov"] = round(totals["gmv"] / totals["orders"]) if totals["orders"] else 0
     totals["ads_gmv_pct"] = round(totals["ads_spend"] / totals["gmv"] * 100, 2) if totals["gmv"] else 0
-    totals["refund_rate"] = round(refund_loss / totals["gmv"] * 100, 2) if totals["gmv"] else 0
+    totals["refund_rate"] = round(refund_loss / totals["gmv"] * 100, 2) if totals["gmv"] and complete and base_sessions else None
     totals["roas"] = round(totals["gmv"] / totals["ads_spend"], 2) if totals["ads_spend"] else 0
+    totals["refund_snapshot_available"] = complete and bool(base_sessions)
     channels = []
     for c in db.query(Channel).order_by(Channel.id).all():
         current = db.query(LiveSession).filter(LiveSession.channel_id == c.id, LiveSession.status == "LIVE").order_by(LiveSession.started_at.desc()).first()
@@ -71,20 +101,18 @@ def overview(snapshot_type: str = Query("T3H"), db: Session = Depends(get_db)):
     alerts = db.query(Alert).order_by(Alert.created_at.desc()).limit(6).all()
     return {"snapshot_type": snapshot_type, "totals": totals, "channels": channels, "live_count": len(live),
             "alerts": [{"id": a.id, "title": a.title, "message": a.message, "severity": a.severity, "created_at": a.created_at, "acknowledged": a.acknowledged} for a in alerts],
-            "ranking": _ranking(db, snapshot_type)}
+            "ranking": _ranking(db, snapshot_type, day=today) or _ranking(db, snapshot_type)}
 
 
 @router.get("/ranking")
-def ranking(snapshot_type: str = "T3H", db: Session = Depends(get_db)):
-    return _ranking(db, snapshot_type if snapshot_type in SNAPSHOT_ORDER else "T3H")
+def ranking(snapshot_type: str = "T3H", day: date | None = None, date_from: date | None = None, date_to: date | None = None, team_id: int | None = None, channel_id: int | None = None, shift: str | None = None, db: Session = Depends(get_db)):
+    return _ranking(db, snapshot_type if snapshot_type in SNAPSHOT_ORDER else "T3H", team_id, channel_id, shift, day, date_from, date_to)
 
 
 @router.get("/sessions")
-def sessions(status: str | None = None, team_id: int | None = None, channel_id: int | None = None, snapshot_type: str = "T3H", db: Session = Depends(get_db)):
-    q = db.query(LiveSession)
+def sessions(status: str | None = None, team_id: int | None = None, channel_id: int | None = None, shift: str | None = None, day: date | None = None, snapshot_type: str = "T3H", db: Session = Depends(get_db)):
+    q = _filtered_sessions(db, team_id, channel_id, shift, day)
     if status: q = q.filter(LiveSession.status == status.upper())
-    if team_id: q = q.filter(LiveSession.team_id == team_id)
-    if channel_id: q = q.filter(LiveSession.channel_id == channel_id)
     return [serialize_session(db, s, snapshot_type) for s in q.order_by(LiveSession.started_at.desc()).limit(200).all()]
 
 
@@ -103,8 +131,7 @@ def session_detail(session_id: int, snapshot_type: str = "T3H", db: Session = De
 
 @router.get("/refunds/{session_id}")
 def refund_timeline(session_id: int, db: Session = Depends(get_db)):
-    rows = db.query(RefundSnapshot).filter(RefundSnapshot.session_id == session_id).all()
-    by_type = {r.snapshot_type: r for r in rows}
+    rows = db.query(RefundSnapshot).filter(RefundSnapshot.session_id == session_id).all(); by_type = {r.snapshot_type: r for r in rows}
     return [{"snapshot_type": s, "rate": by_type[s].refund_cancel_rate if s in by_type else None, "net_revenue": by_type[s].net_revenue if s in by_type else None} for s in SNAPSHOT_ORDER]
 
 
@@ -123,11 +150,7 @@ def ack(alert_id: int, db: Session = Depends(get_db)):
 
 @router.get("/directory")
 def directory(db: Session = Depends(get_db)):
-    return {
-        "teams": [{"id": t.id, "name": t.name, "target_gmv": t.target_gmv} for t in db.query(Team).order_by(Team.id).all()],
-        "channels": [{"id": c.id, "name": c.name, "status": c.status, "external_channel_id": c.external_channel_id, "tiktok_shop_id": c.tiktok_shop_id, "advertiser_id": c.advertiser_id} for c in db.query(Channel).order_by(Channel.id).all()],
-        "assignments": [{"id": a.id, "channel_id": a.channel_id, "team_id": a.team_id, "shift": a.shift, "start_hour": a.start_hour, "end_hour": a.end_hour, "active": a.active} for a in db.query(ChannelShiftAssignment).order_by(ChannelShiftAssignment.id).all()],
-    }
+    return {"teams": [{"id": t.id, "name": t.name, "target_gmv": t.target_gmv} for t in db.query(Team).order_by(Team.id).all()], "channels": [{"id": c.id, "name": c.name, "status": c.status, "external_channel_id": c.external_channel_id, "tiktok_shop_id": c.tiktok_shop_id, "advertiser_id": c.advertiser_id} for c in db.query(Channel).order_by(Channel.id).all()], "assignments": [{"id": a.id, "channel_id": a.channel_id, "team_id": a.team_id, "shift": a.shift, "start_hour": a.start_hour, "end_hour": a.end_hour, "active": a.active} for a in db.query(ChannelShiftAssignment).order_by(ChannelShiftAssignment.id).all()]}
 
 
 @router.get("/settings")

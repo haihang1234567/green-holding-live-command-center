@@ -10,7 +10,6 @@ from app.services.kpi import session_metrics,get_refund_snapshot
 from app.services import mock_engine
 
 router=APIRouter(prefix="/admin",tags=["admin-analytics"],dependencies=[Depends(require_admin)])
-
 def _session_scope(db,team_id=None,channel_id=None):
     q=db.query(LiveSession)
     if team_id:q=q.filter(LiveSession.team_id==team_id)
@@ -30,8 +29,7 @@ def orders(team_id:int|None=None,channel_id:int|None=None,status:str|None=None,l
 def products(team_id:int|None=None,channel_id:int|None=None,db:Session=Depends(get_db)):
     ids=[s.id for s in _session_scope(db,team_id,channel_id).all()]
     if not ids:return []
-    rows=(db.query(Order.sku_id,Order.product_id,Order.product_name,func.sum(Order.quantity).label("quantity"),func.sum(Order.payment_amount).label("revenue"),func.count(Order.id).label("orders")).filter(Order.live_session_id.in_(ids)).group_by(Order.sku_id,Order.product_id,Order.product_name).order_by(func.sum(Order.payment_amount).desc()).all())
-    total=sum(int(r.revenue or 0) for r in rows)
+    rows=(db.query(Order.sku_id,Order.product_id,Order.product_name,func.sum(Order.quantity).label("quantity"),func.sum(Order.payment_amount).label("revenue"),func.count(Order.id).label("orders")).filter(Order.live_session_id.in_(ids)).group_by(Order.sku_id,Order.product_id,Order.product_name).order_by(func.sum(Order.payment_amount).desc()).all());total=sum(int(r.revenue or 0) for r in rows)
     return [{"sku_id":r.sku_id,"product_id":r.product_id,"product_name":r.product_name or "Chưa có dữ liệu","quantity":int(r.quantity or 0),"orders":int(r.orders or 0),"revenue":int(r.revenue or 0),"revenue_share":round(int(r.revenue or 0)/total*100,2) if total else 0} for r in rows]
 
 @router.get("/ads")
@@ -43,18 +41,19 @@ def ads(team_id:int|None=None,channel_id:int|None=None,db:Session=Depends(get_db
 def teams(snapshot_type:str="T3H",db:Session=Depends(get_db)):
     out=[]
     for t in db.query(Team).order_by(Team.id).all():
-        ss=db.query(LiveSession).filter_by(team_id=t.id).all();gmv=orders=ads=net=0
+        ss=db.query(LiveSession).filter_by(team_id=t.id).all();gmv=orders=ads=net=0;complete=bool(ss)
         for s in ss:
-            m=session_metrics(s,get_refund_snapshot(db,s.id,snapshot_type));gmv+=m['gmv'];orders+=m['orders'];ads+=m['ads_spend'];net+=m['net_revenue']
-        out.append({"id":t.id,"name":t.name,"target_gmv":t.target_gmv,"sessions":len(ss),"gmv":gmv,"orders":orders,"ads_spend":ads,"net_revenue":net})
+            snap=get_refund_snapshot(db,s.id,snapshot_type);m=session_metrics(s,snap);gmv+=m['gmv'];orders+=m['orders'];ads+=m['ads_spend']
+            if snap:net+=int(snap.net_revenue or 0)
+            else:complete=False
+        out.append({"id":t.id,"name":t.name,"target_gmv":t.target_gmv,"sessions":len(ss),"gmv":gmv,"orders":orders,"ads_spend":ads,"net_revenue":net if complete else None,"refund_snapshot_available":complete})
     return out
 
 @router.get("/channels")
 def channels(db:Session=Depends(get_db)):
     out=[]
     for c in db.query(Channel).order_by(Channel.id).all():
-        live=db.query(LiveSession).filter_by(channel_id=c.id,status="LIVE").first()
-        out.append({"id":c.id,"name":c.name,"status":c.status,"external_channel_id":c.external_channel_id,"tiktok_shop_id":c.tiktok_shop_id,"advertiser_id":c.advertiser_id,"live_session_id":live.id if live else None,"live_team":live.team.name if live else None})
+        live=db.query(LiveSession).filter_by(channel_id=c.id,status="LIVE").first();out.append({"id":c.id,"name":c.name,"status":c.status,"external_channel_id":c.external_channel_id,"tiktok_shop_id":c.tiktok_shop_id,"advertiser_id":c.advertiser_id,"live_session_id":live.id if live else None,"live_team":live.team.name if live else None})
     return out
 
 @router.patch("/channels/{channel_id}")
