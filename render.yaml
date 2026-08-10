@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: green-holding-live-command-center
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: green-holding-live-db
+          property: connectionString
+      - key: DATA_PROVIDER
+        value: MOCK
+      - key: LIVE_STATUS_PROVIDER
+        value: MOCK
+      - key: POLLING_INTERVAL_SECONDS
+        value: "30"
+      - key: METRIC_SNAPSHOT_INTERVAL_SECONDS
+        value: "60"
+      - key: REFUND_SNAPSHOT_OFFSETS
+        value: "0,1,3,6,12,24,48"
+      - key: FINAL_SNAPSHOT_AFTER_HOURS
+        value: "168"
+      - key: SEED_MOCK_DATA
+        value: "true"
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CORS_ORIGINS
+        value: ""
+
+databases:
+  - name: green-holding-live-db
+    plan: free
+    region: singapore
+    databaseName: green_holding
+    user: green
+    postgresMajorVersion: "17"
+    ipAllowList: []
