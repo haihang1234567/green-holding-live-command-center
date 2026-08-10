@@ -1,32 +1,83 @@
-# GREEN HOLDING LIVE COMMAND CENTER — Frontend Prototype
+# GREEN HOLDING LIVE COMMAND CENTER
 
-Bản giao diện chạy hoàn toàn bằng **MOCK DATA** trong lúc chờ TikTok API.
+Full-stack web app for managing and monitoring company TikTok livestream operations in real-time / near-real-time. It is usable today in **MOCK MODE** and is structured so TikTok credentials can be plugged in later without rewriting the dashboard or database.
 
-## Màn hình có sẵn
-- `index.html`: Admin Command Center
-- `live-session.html`: Live Session Detail
-- `team-dashboard.html`: Team User Dashboard
+## Included
 
-## Chức năng demo tương tác
-- Start / Stop LIVE cho 2 kênh
-- Add order / +10 orders
-- Increase GMV / Ads Spend
-- Cancel / Refund mock action
-- Dropdown hoàn/hủy T+0, T+1H, T+3H, T+6H, T+12H, T+24H, T+48H, FINAL
-- Các KPI hoàn/hủy cập nhật theo snapshot đã chọn
-- Bật/tắt so sánh các mốc refund
-- Responsive desktop / tablet / mobile
+- FastAPI backend + JWT authentication
+- PostgreSQL database
+- React/Vite responsive Command Center
+- WebSocket dashboard refresh
+- 2 TikTok channels + 4 seeded teams: Hoàng Ảnh, Lam Dần, Hạo Ưng, Long Tài
+- Admin vs Team access control
+- LIVE session lifecycle and manual fallback
+- GMV / Orders / AOV / Ads / Ads% / ROAS / GMV-hour KPIs
+- Top SKU and team ranking
+- Refund/cancel snapshots: T+0, 1H, 3H, 6H, 12H, 24H, 48H, FINAL
+- Threshold alerts: LIVE start/end, GMV velocity, Ads/GMV, Refund, integration errors
+- Mock simulator: start/stop, orders, GMV, ads, cancel/refund
+- TikTok Shop adapter + signing + token refresh + orders/returns + webhook receiver
+- TikTok Marketing API report adapter
+- Optional generic LIVE status endpoint adapter
+- Channel/Shop/Advertiser mapping UI
+- User management UI
+- Auto team mapping per channel / shift
+- Filterable reports + Excel/PDF export
+- Docker Compose deployment
 
-## Chạy trên máy
-Không cần npm package nào.
+## Start immediately
 
 ```bash
-python3 -m http.server 8080
+cp .env.example .env
+docker compose up --build -d
 ```
 
-Mở: `http://localhost:8080`
+Open `http://localhost:8080`.
 
-Hoặc mở trực tiếp `index.html` bằng trình duyệt.
+Default demo login (change before production):
 
-## Giai đoạn nối API
-Giao diện hiện độc lập với TikTok. Khi có API, thay phần dữ liệu mock trong `app.js` bằng client gọi FastAPI/WebSocket/SSE, không cần thiết kế lại UI.
+- Admin: `admin` / `admin123`
+- Team demo: `hoanganh`, `lamdan`, `haoung`, `longtai` / `team123`
+
+## When TikTok approves the APIs
+
+Edit `.env`:
+
+```env
+DATA_PROVIDER=TIKTOK
+LIVE_STATUS_PROVIDER=MANUAL
+TIKTOK_SHOP_APP_KEY=...
+TIKTOK_SHOP_APP_SECRET=...
+TIKTOK_SHOP_ACCESS_TOKEN=...
+TIKTOK_SHOP_REFRESH_TOKEN=...
+TIKTOK_ADS_APP_ID=...
+TIKTOK_ADS_SECRET=...
+TIKTOK_ADS_ACCESS_TOKEN=...
+```
+
+Then restart:
+
+```bash
+docker compose up -d --build
+```
+
+In the admin UI:
+
+1. **Kênh TikTok** → enter `shop_cipher`, Shop ID and `advertiser_id` for each of the two channels.
+2. **Cấu hình API** → test Shop / Ads and configure channel+shift → team mapping.
+3. If there is no approved LIVE status source, keep `LIVE_STATUS_PROVIDER=MANUAL` and use **LIVE hiện tại** to start/stop sessions. Real Shop/Ads data still syncs into those sessions.
+
+See `docs/TIKTOK_INTEGRATION.md` for the full checklist.
+
+## API health
+
+- UI: `http://localhost:8080`
+- Backend health through proxy: `http://localhost:8080/health`
+- FastAPI docs when accessing backend directly: `/docs`
+
+## Security
+
+- Never commit `.env`.
+- App secrets/tokens are backend-only.
+- Change admin password, PostgreSQL password and `SECRET_KEY` before production.
+- The current GitHub repository should be private before real credentials or company-sensitive implementation details are added.
