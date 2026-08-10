@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import Any
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,8 +19,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./green_holding.db"
     data_provider: str = "MOCK"  # MOCK | TIKTOK
     live_status_provider: str = "MOCK"  # MOCK | MANUAL | TIKTOK_ENDPOINT
-    polling_interval_seconds: int = 30
-    metric_snapshot_interval_seconds: int = 60
+    polling_interval_seconds: int = 180
+    metric_snapshot_interval_seconds: int = 180
     refund_snapshot_offsets: str = "0,1,3,6,12,24,48"
     final_snapshot_after_hours: int = 168
 
