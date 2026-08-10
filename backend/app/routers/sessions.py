@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from ..config import get_settings
 from ..database import get_db
-from ..models import Channel, LiveMetricSnapshot, LiveSession, RefundSnapshot, SessionStatus, Team, User, UserRole
+from ..models import Channel, LiveMetricSnapshot, LiveSession, RefundSnapshot, Team, User, UserRole
 from ..realtime import manager
 from ..security import get_current_user, require_admin
 from ..services import serialize_session, start_session, stop_session
 
+settings = get_settings()
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
@@ -20,6 +20,10 @@ class StartSessionPayload(BaseModel):
     channel_id: int
     team_id: int
     shift: str = "CA_SANG"
+
+
+def _manual_allowed() -> bool:
+    return settings.data_provider.upper() == "MOCK" or settings.live_status_provider.upper() == "MANUAL"
 
 
 @router.get("")
@@ -64,6 +68,8 @@ def get_session(session_id: int, db: Session = Depends(get_db), user: User = Dep
 
 @router.post("/manual/start")
 async def manual_start(payload: StartSessionPayload, db: Session = Depends(get_db), _=Depends(require_admin)):
+    if not _manual_allowed():
+        raise HTTPException(409, "AUTO mode đang bật: phiên LIVE chỉ được tạo khi bắt tín hiệu từ TikTok")
     channel = db.get(Channel, payload.channel_id)
     team = db.get(Team, payload.team_id)
     if not channel or not team:
@@ -77,6 +83,8 @@ async def manual_start(payload: StartSessionPayload, db: Session = Depends(get_d
 
 @router.post("/{session_id}/stop")
 async def manual_stop(session_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    if not _manual_allowed():
+        raise HTTPException(409, "AUTO mode đang bật: hệ thống chỉ chốt phiên khi TikTok báo OFFLINE")
     session = db.scalar(select(LiveSession).options(joinedload(LiveSession.channel), joinedload(LiveSession.team)).where(LiveSession.id == session_id))
     if not session:
         raise HTTPException(404, "Không tìm thấy phiên LIVE")
