@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -7,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Alert, AppSetting, Channel, Team
+from ..schedule import DailyTeamAssignment, day_schedule, vietnam_date
 from ..security import get_current_user, require_admin
 
 router = APIRouter(tags=["admin"])
@@ -22,18 +25,25 @@ class ChannelUpdate(BaseModel):
     polling_enabled: bool | None = None
 
 
-
-
-class AssignmentUpdate(BaseModel):
+class DailyScheduleUpdate(BaseModel):
     channel_1_ca_sang_team_id: int | None = None
     channel_1_ca_toi_team_id: int | None = None
     channel_2_ca_sang_team_id: int | None = None
     channel_2_ca_toi_team_id: int | None = None
 
+
 class ThresholdUpdate(BaseModel):
     refund_warning_percent: float | None = None
     ads_gmv_warning_percent: float | None = None
     gmv_velocity_drop_percent: float | None = None
+
+
+SCHEDULE_FIELDS = {
+    "channel_1_ca_sang_team_id": (1, "CA_SANG"),
+    "channel_1_ca_toi_team_id": (1, "CA_TOI"),
+    "channel_2_ca_sang_team_id": (2, "CA_SANG"),
+    "channel_2_ca_toi_team_id": (2, "CA_TOI"),
+}
 
 
 @router.get("/channels")
@@ -93,7 +103,8 @@ def ack_alert(alert_id: int, db: Session = Depends(get_db), _=Depends(require_ad
 def thresholds(db: Session = Depends(get_db), _=Depends(get_current_user)):
     keys = ["refund_warning_percent", "ads_gmv_warning_percent", "gmv_velocity_drop_percent"]
     values = {x.key: x.value for x in db.scalars(select(AppSetting).where(AppSetting.key.in_(keys))).all()}
-    return {k: float(values.get(k, {"refund_warning_percent": "20", "ads_gmv_warning_percent": "8", "gmv_velocity_drop_percent": "30"}[k])) for k in keys}
+    defaults = {"refund_warning_percent": "20", "ads_gmv_warning_percent": "8", "gmv_velocity_drop_percent": "30"}
+    return {key: float(values.get(key, defaults[key])) for key in keys}
 
 
 @router.patch("/settings/thresholds")
@@ -108,25 +119,44 @@ def update_thresholds(payload: ThresholdUpdate, db: Session = Depends(get_db), _
     return {"ok": True}
 
 
-@router.get("/settings/assignments")
-def assignments(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    keys = [
-        "channel_1_ca_sang_team_id", "channel_1_ca_toi_team_id",
-        "channel_2_ca_sang_team_id", "channel_2_ca_toi_team_id",
-    ]
-    values = {x.key: x.value for x in db.scalars(select(AppSetting).where(AppSetting.key.in_(keys))).all()}
-    return {key: int(values[key]) if values.get(key, "").isdigit() else None for key in keys}
+@router.get("/settings/daily-schedule/{work_date}")
+def get_daily_schedule(work_date: date, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    assignments = day_schedule(db, work_date)
+    return {
+        "date": work_date.isoformat(),
+        "is_today_vietnam": work_date == vietnam_date(),
+        "complete": all(value is not None for value in assignments.values()),
+        **assignments,
+    }
 
 
-@router.patch("/settings/assignments")
-def update_assignments(payload: AssignmentUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
-    for key, team_id in payload.model_dump(exclude_none=True).items():
+@router.put("/settings/daily-schedule/{work_date}")
+def save_daily_schedule(work_date: date, payload: DailyScheduleUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    supplied = payload.model_dump(exclude_unset=True)
+    for field, team_id in supplied.items():
+        channel_id, shift = SCHEDULE_FIELDS[field]
+        existing = db.scalar(
+            select(DailyTeamAssignment).where(
+                DailyTeamAssignment.work_date == work_date,
+                DailyTeamAssignment.channel_id == channel_id,
+                DailyTeamAssignment.shift == shift,
+            )
+        )
+        if team_id in (None, 0):
+            if existing:
+                db.delete(existing)
+            continue
         if not db.get(Team, team_id):
             raise HTTPException(400, f"Team {team_id} không hợp lệ")
-        row = db.get(AppSetting, key)
-        if row:
-            row.value = str(team_id)
+        if existing:
+            existing.team_id = team_id
         else:
-            db.add(AppSetting(key=key, value=str(team_id)))
+            db.add(DailyTeamAssignment(work_date=work_date, channel_id=channel_id, shift=shift, team_id=team_id))
     db.commit()
-    return {"ok": True}
+    assignments = day_schedule(db, work_date)
+    return {
+        "ok": True,
+        "date": work_date.isoformat(),
+        "complete": all(value is not None for value in assignments.values()),
+        **assignments,
+    }
