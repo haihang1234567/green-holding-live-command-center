@@ -16,9 +16,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cat .source-parts/part-* > .full-source.b64
+          base64 -d .full-source.b64 > .full-source.fixed.tar.gz
+          echo "21bd97dabc733226ca27d65ed5a755f03ec93f9419a87891a6d2a1b00f33f703  .full-source.fixed.tar.gz" | sha256sum -c -
           rm -f app.js index.html live-session.html package.json styles.css team-dashboard.html
-          tar -xzf .full-source.tar.gz
-          rm -f .full-source.tar.gz .github/workflows/expand-full-stack.yml
+          tar -xzf .full-source.fixed.tar.gz
+          rm -rf .source-parts .full-source.b64 .full-source.fixed.tar.gz .full-source.tar.gz .github/workflows/expand-full-stack.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
