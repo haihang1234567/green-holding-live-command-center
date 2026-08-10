@@ -4,7 +4,8 @@ import asyncio
 import contextlib
 
 from .config import get_settings
-from .services import poll_live_statuses, process_due_refund_snapshots, sync_live_sessions
+from .monitoring import poll_live_statuses_v2
+from .services import process_due_refund_snapshots, sync_live_sessions
 
 settings = get_settings()
 
@@ -22,7 +23,7 @@ async def _periodic(interval_seconds: int, func):
 
 def start_background_tasks() -> list[asyncio.Task]:
     return [
-        asyncio.create_task(_periodic(max(10, settings.polling_interval_seconds), poll_live_statuses), name="live_status_poll"),
+        asyncio.create_task(_periodic(max(10, settings.polling_interval_seconds), poll_live_statuses_v2), name="live_status_poll_v2"),
         asyncio.create_task(_periodic(max(15, settings.metric_snapshot_interval_seconds), sync_live_sessions), name="live_metrics_sync"),
         asyncio.create_task(_periodic(180, process_due_refund_snapshots), name="refund_snapshots"),
     ]
