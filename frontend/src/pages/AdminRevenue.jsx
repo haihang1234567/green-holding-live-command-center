@@ -1,0 +1,7 @@
+import {useEffect,useState} from 'react'
+import {api} from '../api'
+import {money,num,pct} from '../utils'
+import AdminHeader from '../components/AdminHeader'
+import KpiCard from '../components/KpiCard'
+import SnapshotSelect from '../components/SnapshotSelect'
+export default function AdminRevenue(){const [snap,setSnap]=useState('T3H'),[d,setD]=useState(null);useEffect(()=>{api.report(`?snapshot_type=${snap}`).then(setD)},[snap]);if(!d)return <div className="page-loading">Đang tải...</div>;return <><AdminHeader title="Doanh thu" subtitle="GMV và doanh thu giữ lại" right={<SnapshotSelect value={snap} onChange={setSnap} compact/>}/><div className="kpi-grid five"><KpiCard label="GMV" value={money(d.totals.gmv)}/><KpiCard label="Net Revenue" value={money(d.totals.net_revenue)} tone="good"/><KpiCard label="Orders" value={num(d.totals.orders)}/><KpiCard label="Refund Rate" value={pct(d.totals.refund_rate)} tone="danger"/><KpiCard label="ROAS" value={d.totals.roas}/></div><div className="panel"><div className="table-wrap"><table><thead><tr><th>Ngày</th><th>Team</th><th>Kênh</th><th>Ca</th><th>GMV</th><th>Net Revenue</th><th>Orders</th><th>Refund</th><th>Ads</th><th>ROAS</th></tr></thead><tbody>{d.rows.map(r=><tr key={r.session_code}><td>{r.date}</td><td><b>{r.team}</b></td><td>{r.channel}</td><td>{r.shift}</td><td>{money(r.gmv)}</td><td><b>{money(r.net_revenue)}</b></td><td>{num(r.orders)}</td><td>{pct(r.refund_rate)}</td><td>{money(r.ads)}</td><td>{r.roas}</td></tr>)}</tbody></table></div></div></>}

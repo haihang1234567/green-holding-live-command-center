@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: livecenter
+      POSTGRES_USER: livecenter
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U livecenter -d livecenter"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build: ./backend
+    environment:
+      ENVIRONMENT: production
+      SECRET_KEY: ${SECRET_KEY:-replace-before-production}
+      DATABASE_URL: postgresql+psycopg://livecenter:change-me@db:5432/livecenter
+      CORS_ORIGINS: http://localhost:3000,http://localhost
+      DATA_PROVIDER: ${DATA_PROVIDER:-MOCK}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-60}
+      MOCK_TICK_SECONDS: ${MOCK_TICK_SECONDS:-12}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      TEAM_DEFAULT_PASSWORD: ${TEAM_DEFAULT_PASSWORD:-team123}
+      TIKTOK_SHOP_APP_KEY: ${TIKTOK_SHOP_APP_KEY:-}
+      TIKTOK_SHOP_APP_SECRET: ${TIKTOK_SHOP_APP_SECRET:-}
+      TIKTOK_SHOP_ACCESS_TOKEN: ${TIKTOK_SHOP_ACCESS_TOKEN:-}
+      TIKTOK_SHOP_ORDERS_URL: ${TIKTOK_SHOP_ORDERS_URL:-}
+      TIKTOK_SHOP_PRODUCTS_URL: ${TIKTOK_SHOP_PRODUCTS_URL:-}
+      TIKTOK_SHOP_REFUNDS_URL: ${TIKTOK_SHOP_REFUNDS_URL:-}
+      TIKTOK_ADS_APP_ID: ${TIKTOK_ADS_APP_ID:-}
+      TIKTOK_ADS_SECRET: ${TIKTOK_ADS_SECRET:-}
+      TIKTOK_ADS_ACCESS_TOKEN: ${TIKTOK_ADS_ACCESS_TOKEN:-}
+      TIKTOK_ADS_METRICS_URL: ${TIKTOK_ADS_METRICS_URL:-}
+      TIKTOK_LIVE_STATUS_URL: ${TIKTOK_LIVE_STATUS_URL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

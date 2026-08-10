@@ -1,0 +1,48 @@
+name: Full Stack CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - agent/full-stack-api-ready
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+      - name: Compile backend
+        run: python -m compileall -q app
+      - name: Import FastAPI app
+        env:
+          DATABASE_URL: sqlite:///./ci.db
+          SECRET_KEY: ci-only-secret
+          DATA_PROVIDER: MOCK
+        run: python -c "from app.main import app; print(app.title)"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package.json
+      - name: Install frontend dependencies
+        run: npm install
+      - name: Build frontend
+        run: npm run build
