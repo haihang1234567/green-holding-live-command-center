@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./green_holding.db"
     data_provider: str = "MOCK"  # MOCK | TIKTOK
-    live_status_provider: str = "MOCK"  # MOCK | MANUAL | TIKTOK_ENDPOINT
+    live_status_provider: str = "MOCK"  # MOCK | AUTO | MANUAL
     polling_interval_seconds: int = 180
     metric_snapshot_interval_seconds: int = 180
     refund_snapshot_offsets: str = "0,1,3,6,12,24,48"
@@ -28,18 +28,19 @@ class Settings(BaseSettings):
     admin_password: str = "admin123"
     seed_mock_data: bool = True
 
-    # TikTok Shop Open API
+    # ------------------------------------------------------------------
+    # Backward compatible / single-app fallbacks.
+    # SHOP1_* and SHOP2_* below take priority for production.
+    # ------------------------------------------------------------------
     tiktok_shop_base_url: str = "https://open-api.tiktokglobalshop.com"
     tiktok_shop_auth_url: str = "https://auth.tiktok-shops.com/api/v2"
     tiktok_shop_app_key: str = ""
     tiktok_shop_app_secret: str = ""
     tiktok_shop_access_token: str = ""
     tiktok_shop_refresh_token: str = ""
-    # Optional map: {"SHOP_CIPHER_1": "token1", "SHOP_CIPHER_2": "token2"}
     tiktok_shop_access_tokens_json: str = "{}"
     tiktok_shop_refresh_tokens_json: str = "{}"
 
-    # TikTok API for Business / Marketing API
     tiktok_ads_base_url: str = "https://business-api.tiktok.com/open_api/v1.3"
     tiktok_ads_app_id: str = ""
     tiktok_ads_secret: str = ""
@@ -48,7 +49,61 @@ class Settings(BaseSettings):
     tiktok_ads_revenue_metric: str = ""
     tiktok_ads_roas_metric: str = ""
 
-    # Optional future/allowlisted LIVE status endpoint.
+    # ---------------- SHOP 1 / CHANNEL 1 ----------------
+    shop1_channel_id: int = 1
+    shop1_name: str = "SHOP 1"
+    shop1_shop_base_url: str = "https://open-api.tiktokglobalshop.com"
+    shop1_auth_url: str = "https://auth.tiktok-shops.com/api/v2"
+    shop1_app_key: str = ""
+    shop1_app_secret: str = ""
+    shop1_access_token: str = ""
+    shop1_refresh_token: str = ""
+    shop1_shop_cipher: str = ""
+    shop1_shop_id: str = ""
+    shop1_ads_base_url: str = "https://business-api.tiktok.com/open_api/v1.3"
+    shop1_ads_app_id: str = ""
+    shop1_ads_secret: str = ""
+    shop1_ads_access_token: str = ""
+    shop1_advertiser_id: str = ""
+    # LIVE detector can be any approved endpoint. For a TikTok-Shop signed endpoint,
+    # use SHOP1_LIVE_STATUS_AUTH_MODE=TIKTOK_SHOP.
+    shop1_live_status_url: str = ""
+    shop1_live_status_method: str = "GET"
+    shop1_live_status_auth_mode: str = "BEARER"  # BEARER | TIKTOK_SHOP | NONE
+    shop1_live_status_token: str = ""
+    shop1_live_status_channel_param: str = "channel_id"
+    shop1_live_status_json_path: str = "data.status"
+    shop1_live_value: str = "LIVE"
+    shop1_offline_value: str = "OFFLINE"
+    shop1_live_source_key: str = ""
+
+    # ---------------- SHOP 2 / CHANNEL 2 ----------------
+    shop2_channel_id: int = 2
+    shop2_name: str = "SHOP 2"
+    shop2_shop_base_url: str = "https://open-api.tiktokglobalshop.com"
+    shop2_auth_url: str = "https://auth.tiktok-shops.com/api/v2"
+    shop2_app_key: str = ""
+    shop2_app_secret: str = ""
+    shop2_access_token: str = ""
+    shop2_refresh_token: str = ""
+    shop2_shop_cipher: str = ""
+    shop2_shop_id: str = ""
+    shop2_ads_base_url: str = "https://business-api.tiktok.com/open_api/v1.3"
+    shop2_ads_app_id: str = ""
+    shop2_ads_secret: str = ""
+    shop2_ads_access_token: str = ""
+    shop2_advertiser_id: str = ""
+    shop2_live_status_url: str = ""
+    shop2_live_status_method: str = "GET"
+    shop2_live_status_auth_mode: str = "BEARER"
+    shop2_live_status_token: str = ""
+    shop2_live_status_channel_param: str = "channel_id"
+    shop2_live_status_json_path: str = "data.status"
+    shop2_live_value: str = "LIVE"
+    shop2_offline_value: str = "OFFLINE"
+    shop2_live_source_key: str = ""
+
+    # Legacy generic detector (kept for compatibility only).
     tiktok_live_status_url: str = ""
     tiktok_live_status_method: str = "GET"
     tiktok_live_status_token: str = ""
@@ -56,8 +111,6 @@ class Settings(BaseSettings):
     tiktok_live_status_json_path: str = "data.status"
     tiktok_live_value: str = "LIVE"
     tiktok_offline_value: str = "OFFLINE"
-
-    # Webhook verification can be filled after TikTok provides the exact secret/signature contract.
     tiktok_webhook_secret: str = ""
 
     @property
