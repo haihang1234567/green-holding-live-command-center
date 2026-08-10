@@ -24,7 +24,7 @@ def start_background_tasks() -> list[asyncio.Task]:
     return [
         asyncio.create_task(_periodic(max(10, settings.polling_interval_seconds), poll_live_statuses), name="live_status_poll"),
         asyncio.create_task(_periodic(max(15, settings.metric_snapshot_interval_seconds), sync_live_sessions), name="live_metrics_sync"),
-        asyncio.create_task(_periodic(300, process_due_refund_snapshots), name="refund_snapshots"),
+        asyncio.create_task(_periodic(180, process_due_refund_snapshots), name="refund_snapshots"),
     ]
 
 
