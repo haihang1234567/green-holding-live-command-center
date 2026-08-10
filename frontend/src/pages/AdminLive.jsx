@@ -1,0 +1,6 @@
+import {useEffect,useState} from 'react'
+import {api,connectRealtime} from '../api'
+import {money,num,duration} from '../utils'
+import AdminHeader from '../components/AdminHeader'
+import StatusPill from '../components/StatusPill'
+export default function AdminLive(){const [rows,setRows]=useState([]);const load=()=>api.sessions('T3H').then(x=>setRows(x.filter(s=>s.status==='LIVE')));useEffect(()=>{load();const stop=connectRealtime(load);return stop},[]);return <><AdminHeader title="LIVE hiện tại" subtitle="Các phiên đang hoạt động trên 2 kênh"/><div className="live-page-grid">{rows.length?rows.map(s=><div className="panel live-detail-card" key={s.id}><div className="channel-head"><div><span className="eyebrow">{s.channel_name}</span><h2>{s.team_name}</h2></div><StatusPill status={s.status}/></div><p>{s.shift==='MORNING'?'Ca sáng':'Ca tối'} · {duration(s.metrics.duration_seconds)}</p><div className="team-stat-grid"><span><small>GMV</small><b>{money(s.metrics.gmv)}</b></span><span><small>Orders</small><b>{num(s.metrics.orders)}</b></span><span><small>Ads</small><b>{money(s.metrics.ads_spend)}</b></span><span><small>ROAS</small><b>{s.metrics.roas}</b></span></div></div>):<div className="panel empty-state big">Hiện không có kênh nào LIVE</div>}</div></>}
