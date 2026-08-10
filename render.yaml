@@ -22,9 +22,9 @@ services:
       - key: LIVE_STATUS_PROVIDER
         value: MOCK
       - key: POLLING_INTERVAL_SECONDS
-        value: "30"
+        value: "180"
       - key: METRIC_SNAPSHOT_INTERVAL_SECONDS
-        value: "60"
+        value: "180"
       - key: REFUND_SNAPSHOT_OFFSETS
         value: "0,1,3,6,12,24,48"
       - key: FINAL_SNAPSHOT_AFTER_HOURS
