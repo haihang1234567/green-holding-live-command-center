@@ -46,13 +46,25 @@ export function connectDashboardWS(onEvent: (event: string, payload: any) => voi
   let closed = false
   let socket: WebSocket | null = null
   let retry: number | undefined
+  let keepAlive: number | undefined
+  const stopKeepAlive = () => { if (keepAlive) { clearInterval(keepAlive); keepAlive = undefined } }
   const open = () => {
     if (closed) return
     socket = new WebSocket(url)
     socket.onmessage = (e) => { try { const x = JSON.parse(e.data); onEvent(x.event, x.payload) } catch {} }
-    socket.onopen = () => socket?.send('ready')
-    socket.onclose = () => { if (!closed) retry = window.setTimeout(open, 2500) }
+    socket.onopen = () => {
+      socket?.send('ready')
+      stopKeepAlive()
+      // Keeps the connection active on hosts that idle-suspend free web services.
+      keepAlive = window.setInterval(() => {
+        if (socket?.readyState === WebSocket.OPEN) socket.send('ping')
+      }, 5 * 60 * 1000)
+    }
+    socket.onclose = () => {
+      stopKeepAlive()
+      if (!closed) retry = window.setTimeout(open, 2500)
+    }
   }
   open()
-  return () => { closed = true; if (retry) clearTimeout(retry); socket?.close() }
+  return () => { closed = true; if (retry) clearTimeout(retry); stopKeepAlive(); socket?.close() }
 }
