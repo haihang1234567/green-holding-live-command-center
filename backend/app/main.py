@@ -9,9 +9,19 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine
+from .models import Channel
+from .profiled_providers import (
+    DualLiveStatusProvider,
+    DualTikTokAdsProvider,
+    DualTikTokShopProvider,
+    apply_profile_to_channel,
+    profile_for_channel,
+)
+from .providers import ManualLiveProvider, MockLiveProvider, providers
 from .realtime import manager
 from .scheduler import start_background_tasks, stop_background_tasks
 from .seed import seed_database
@@ -20,17 +30,45 @@ from .routers import admin, auth, dashboard, data, integrations, mock, reports, 
 settings = get_settings()
 
 
+def configure_runtime_providers() -> None:
+    """Select providers once at process startup.
+
+    MOCK keeps the simulator available. TIKTOK uses two completely independent
+    credential profiles. LIVE status AUTO never starts a session locally; it
+    only reacts to status returned by the two configured external sources.
+    """
+    if settings.data_provider.upper() == "TIKTOK":
+        providers.shop = DualTikTokShopProvider(settings)
+        providers.ads = DualTikTokAdsProvider(settings)
+
+    live_mode = settings.live_status_provider.upper()
+    if live_mode == "AUTO":
+        providers.live = DualLiveStatusProvider(settings)
+    elif live_mode == "MANUAL":
+        providers.live = ManualLiveProvider()
+    elif live_mode == "MOCK":
+        providers.live = MockLiveProvider()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    configure_runtime_providers()
     with SessionLocal() as db:
         seed_database(db)
+        # Copy only non-secret identifiers from environment profiles into the
+        # channel table. Secrets stay exclusively in Render/server ENV.
+        if settings.data_provider.upper() == "TIKTOK":
+            channels = db.scalars(select(Channel).order_by(Channel.id)).all()
+            for channel in channels:
+                apply_profile_to_channel(channel, profile_for_channel(settings, channel))
+            db.commit()
     tasks = start_background_tasks()
     yield
     await stop_background_tasks(tasks)
 
 
-app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="2.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_list,
@@ -48,8 +86,11 @@ def health():
     return {
         "status": "ok",
         "app": settings.app_name,
+        "version": "2.0.0",
         "data_provider": settings.data_provider.upper(),
         "live_status_provider": settings.live_status_provider.upper(),
+        "polling_interval_seconds": settings.polling_interval_seconds,
+        "metric_snapshot_interval_seconds": settings.metric_snapshot_interval_seconds,
     }
 
 
@@ -75,9 +116,6 @@ async def dashboard_ws(websocket: WebSocket):
         await manager.disconnect(websocket)
 
 
-# Production/Render mode: the root Dockerfile builds the React/Vite frontend
-# and copies it into FRONTEND_DIST. Serving it from FastAPI keeps UI, REST API,
-# and WebSocket on one HTTPS origin and avoids cross-origin configuration.
 frontend_dist = Path(os.getenv("FRONTEND_DIST", "/app/frontend-dist")).resolve()
 assets_dir = frontend_dist / "assets"
 if frontend_dist.exists() and (frontend_dist / "index.html").exists():
