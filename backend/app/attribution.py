@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 
 from .attribution_models import OrderAttribution
 from .live_models import LiveCoreSnapshot
-from .models import LiveSession, Order
+from .models import AdsSnapshot, LiveSession, Order, RefundSnapshot
+
+CANCEL_STATUSES = {"CANCELLED", "CANCELED", "CANCEL", "CLOSED"}
 
 
 def _money(value: Any) -> float:
@@ -24,19 +26,25 @@ def _money(value: Any) -> float:
         return 0.0
 
 
-def _bucket(content_type: str, content_id: str, live_room_id: str | None) -> tuple[str, str, int | None]:
+def _aware(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+def _bucket(content_type: str, content_id: str, live_room_id: str | None) -> tuple[str, str, bool]:
     ctype = (content_type or "UNKNOWN").upper()
     cid = str(content_id or "")
     room = str(live_room_id or "")
     if ctype == "LIVE":
         if room and cid and cid == room:
-            return "LIVE_CURRENT", "EXACT", 1
+            return "LIVE_CURRENT", "EXACT", True
         if cid:
-            return "LIVE_OTHER", "EXACT", None
-        return "LIVE_UNMATCHED", "PARTIAL", None
+            return "LIVE_OTHER", "EXACT", False
+        return "LIVE_UNMATCHED", "PARTIAL", False
     if ctype in {"VIDEO", "SHOP", "PRE_LIVE", "PROMOTION_PAGE", "LINKSHARE"}:
-        return ctype, "EXACT", None
-    return "UNKNOWN", "UNRESOLVED", None
+        return ctype, "EXACT", False
+    return "UNKNOWN", "UNRESOLVED", False
 
 
 def _find_order_rows(db: Session, channel_id: int, order_id: str, sku_id: str) -> list[Order]:
@@ -59,6 +67,7 @@ def upsert_affiliate_attributions(
     live_room_id: str | None,
     raw_orders: list[dict[str, Any]],
 ) -> dict[str, int]:
+    """Persist TikTok's explicit affiliate content_type/content_id attribution."""
     counts: dict[str, int] = defaultdict(int)
     now = datetime.now(timezone.utc)
     for raw in raw_orders:
@@ -72,14 +81,14 @@ def upsert_affiliate_attributions(
             sku_id = str(sku.get("id") or sku.get("sku_id") or "")
             content_type = str(sku.get("content_type") or "UNKNOWN").upper()
             content_id = str(sku.get("content_id") or "")
-            source_bucket, confidence, attach_flag = _bucket(content_type, content_id, live_room_id)
+            source_bucket, confidence, is_current_live = _bucket(content_type, content_id, live_room_id)
             qty = max(1, int(sku.get("quantity") or 1))
             amount = _money(sku.get("price")) * qty
             key = "|".join([str(channel_id), order_id, sku_id, content_type, content_id])
             row = db.scalar(select(OrderAttribution).where(OrderAttribution.attribution_key == key))
             values = {
                 "channel_id": channel_id,
-                "session_id": session_id if attach_flag else None,
+                "session_id": session_id if is_current_live else None,
                 "order_id": order_id,
                 "sku_id": sku_id,
                 "product_id": str(sku.get("product_id") or ""),
@@ -96,17 +105,17 @@ def upsert_affiliate_attributions(
                 "captured_at": now,
             }
             if row:
-                for k, v in values.items():
-                    setattr(row, k, v)
+                for key0, value in values.items():
+                    setattr(row, key0, value)
             else:
                 row = OrderAttribution(attribution_key=key, **values)
                 db.add(row)
             counts[source_bucket] += 1
 
-            # Only an exact match to this LIVE content is permitted to join the session.
-            order_rows = _find_order_rows(db, channel_id, order_id, sku_id)
-            for order_row in order_rows:
-                if source_bucket == "LIVE_CURRENT":
+            # General Order API data is never enough to call an order a LIVE order.
+            # Only TikTok content_type=LIVE + matching content_id may attach it.
+            for order_row in _find_order_rows(db, channel_id, order_id, sku_id):
+                if is_current_live:
                     order_row.live_session_id = session_id
                 elif order_row.live_session_id == session_id:
                     order_row.live_session_id = None
@@ -115,17 +124,14 @@ def upsert_affiliate_attributions(
 
 
 def detach_unconfirmed_session_orders(db: Session, session_id: int, order_ids: list[str]) -> None:
-    """General Shop Order API is not a LIVE attribution API.
-
-    New/updated orders are stored, but they stay detached from a LIVE session until
-    TikTok content attribution explicitly confirms LIVE_CURRENT.
-    """
+    """Detach time-window-only orders until explicit LIVE attribution confirms them."""
     if not order_ids:
         return
     rows = db.scalars(select(Order).where(Order.live_session_id == session_id)).all()
+    wanted = set(order_ids)
     for row in rows:
         parent = str(row.parent_order_id or row.order_id).split(":", 1)[0]
-        if parent not in order_ids:
+        if parent not in wanted:
             continue
         exact = db.scalar(
             select(OrderAttribution.id).where(
@@ -139,37 +145,119 @@ def detach_unconfirmed_session_orders(db: Session, session_id: int, order_ids: l
     db.flush()
 
 
+def session_live_totals(db: Session, session_id: int) -> dict[str, Any]:
+    """LIVE KPI source of truth.
+
+    GMV/order count prefer TikTok LIVE Analytics. Refund/cancel amounts use only
+    order rows that have exact LIVE attribution. This prevents natural/video/link
+    orders from inflating LIVE performance.
+    """
+    live = db.scalar(
+        select(LiveCoreSnapshot)
+        .where(LiveCoreSnapshot.session_id == session_id)
+        .order_by(LiveCoreSnapshot.captured_at.desc())
+        .limit(1)
+    )
+    exact_orders = db.scalars(select(Order).where(Order.live_session_id == session_id)).all()
+    parent_ids = {str(x.parent_order_id or x.order_id).split(":", 1)[0] for x in exact_orders}
+    exact_gmv = sum(float(x.payment_amount or 0) for x in exact_orders)
+    gmv = float(live.gmv) if live and live.gmv is not None else exact_gmv
+    orders = int(live.orders) if live and live.orders is not None else len(parent_ids)
+    refund = sum(float(x.refund_amount or 0) for x in exact_orders)
+    cancelled = sum(float(x.cancelled_amount or 0) for x in exact_orders)
+    cancelled_ids = {
+        str(x.parent_order_id or x.order_id).split(":", 1)[0]
+        for x in exact_orders
+        if (x.order_status or "").upper() in CANCEL_STATUSES or float(x.cancelled_amount or 0) > 0
+    }
+    latest_ads = db.scalar(
+        select(AdsSnapshot).where(AdsSnapshot.live_session_id == session_id).order_by(AdsSnapshot.timestamp.desc()).limit(1)
+    )
+    ads_spend = float(latest_ads.spend or 0) if latest_ads else 0.0
+    ads_revenue = float(latest_ads.gross_revenue or 0) if latest_ads else 0.0
+    net = max(0.0, gmv - refund - cancelled)
+    return {
+        "gmv": gmv,
+        "orders": orders,
+        "paid_orders": int(live.paid_orders or 0) if live else 0,
+        "buyers": int(live.buyers or 0) if live else 0,
+        "quantity": sum(int(x.quantity or 0) for x in exact_orders),
+        "refund_amount": refund,
+        "cancelled_amount": cancelled,
+        "refund_rate": ((refund + cancelled) / gmv * 100) if gmv else 0.0,
+        "net_revenue": net,
+        "cancelled_orders": len(cancelled_ids),
+        "ads_spend": ads_spend,
+        "ads_revenue": ads_revenue,
+        "aov": gmv / orders if orders else 0.0,
+        "ads_percentage": ads_spend / gmv * 100 if gmv else 0.0,
+        "roas": ads_revenue / ads_spend if ads_spend and ads_revenue else (float(latest_ads.roas or 0) if latest_ads else 0.0),
+        "metric_source": "TIKTOK_LIVE_ANALYTICS" if live and live.gmv is not None else "EXACT_ATTRIBUTED_ORDERS",
+    }
+
+
+def override_serialized_session(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    if not payload or not payload.get("id"):
+        return payload
+    totals = session_live_totals(db, int(payload["id"]))
+    payload.update(totals)
+    duration = max(0, int(payload.get("duration_seconds") or 0))
+    hours = max(duration / 3600, 1 / 60)
+    payload["gmv_per_hour"] = totals["gmv"] / hours
+    payload["orders_per_hour"] = totals["orders"] / hours
+    return payload
+
+
+def refresh_refund_snapshot(db: Session, session: LiveSession, hours_after: int, *, final: bool = False) -> RefundSnapshot:
+    stype = "FINAL" if final else ("T+0" if hours_after == 0 else f"T+{hours_after}H")
+    totals = session_live_totals(db, session.id)
+    row = db.scalar(select(RefundSnapshot).where(RefundSnapshot.session_id == session.id, RefundSnapshot.snapshot_type == stype))
+    if not row:
+        row = RefundSnapshot(session_id=session.id, snapshot_type=stype, hours_after_live=hours_after)
+        db.add(row)
+    row.snapshot_time = datetime.now(timezone.utc)
+    row.original_gmv = totals["gmv"]
+    row.refund_amount = totals["refund_amount"]
+    row.cancelled_amount = totals["cancelled_amount"]
+    row.refund_cancel_rate = totals["refund_rate"]
+    row.net_revenue = totals["net_revenue"]
+    row.total_orders = totals["orders"]
+    row.cancelled_orders = totals["cancelled_orders"]
+    db.flush()
+    return row
+
+
 def session_attribution_summary(db: Session, session_id: int) -> dict[str, Any]:
     session = db.get(LiveSession, session_id)
     if not session:
         return {"session_id": session_id, "sources": [], "live_analytics": None}
     attrs = db.scalars(select(OrderAttribution).where(OrderAttribution.channel_id == session.channel_id)).all()
     grouped: dict[str, dict[str, Any]] = {}
+    start = _aware(session.started_at) or datetime.now(timezone.utc)
+    end = _aware(session.ended_at) or datetime.now(timezone.utc)
     for row in attrs:
-        # LIVE_CURRENT is session-specific. Other sources are shown only if captured while this session was active.
-        if row.source_bucket == "LIVE_CURRENT" and row.session_id != session_id:
-            continue
-        captured = row.captured_at
-        if captured.tzinfo is None:
-            captured = captured.replace(tzinfo=timezone.utc)
-        start = session.started_at if session.started_at.tzinfo else session.started_at.replace(tzinfo=timezone.utc)
-        end0 = session.ended_at or datetime.now(timezone.utc)
-        end = end0 if end0.tzinfo else end0.replace(tzinfo=timezone.utc)
-        if row.source_bucket != "LIVE_CURRENT" and not (start <= captured <= end):
-            continue
+        if row.source_bucket == "LIVE_CURRENT":
+            if row.session_id != session_id:
+                continue
+        else:
+            captured = _aware(row.captured_at) or datetime.now(timezone.utc)
+            if not (start <= captured <= end):
+                continue
         item = grouped.setdefault(row.source_bucket, {"source": row.source_bucket, "orders": set(), "sku_rows": 0, "gmv": 0.0})
         item["orders"].add(row.order_id)
         item["sku_rows"] += 1
         item["gmv"] += float(row.attributed_amount or 0)
     sources = [
-        {"source": k, "orders": len(v["orders"]), "sku_rows": v["sku_rows"], "gmv": round(v["gmv"], 2)}
-        for k, v in grouped.items()
+        {"source": key, "orders": len(value["orders"]), "sku_rows": value["sku_rows"], "gmv": round(value["gmv"], 2)}
+        for key, value in grouped.items()
     ]
     sources.sort(key=lambda x: (x["source"] != "LIVE_CURRENT", -x["gmv"]))
+    totals = session_live_totals(db, session_id)
     live = db.scalar(select(LiveCoreSnapshot).where(LiveCoreSnapshot.session_id == session_id).order_by(LiveCoreSnapshot.captured_at.desc()).limit(1))
     return {
         "session_id": session_id,
-        "rule": "Only TikTok-confirmed LIVE_CURRENT attribution is counted as an exact LIVE order. UNKNOWN is never promoted by time-window inference.",
+        "rule": "LIVE GMV uses TikTok LIVE Analytics. Order-level LIVE attribution requires content_type=LIVE and content_id matching this live_room_id. Time alone never promotes an order to LIVE.",
+        "live_totals": totals,
         "sources": sources,
         "live_analytics": None if not live else {
             "gmv": float(live.gmv or 0),
