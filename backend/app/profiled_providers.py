@@ -8,14 +8,7 @@ import httpx
 
 from .config import Settings
 from .models import Channel
-from .providers import (
-    AdsProvider,
-    LiveStatusProvider,
-    ShopProvider,
-    TikTokAdsProvider,
-    TikTokShopProvider,
-    _json_path,
-)
+from .providers import LiveStatusProvider, TikTokAdsProvider, TikTokShopProvider, _json_path
 
 
 @dataclass(frozen=True)
@@ -53,10 +46,7 @@ def _value(settings: Settings, slot: int, field: str, fallback: str = "") -> str
 
 
 def profile_for_channel(settings: Settings, channel: Channel) -> ShopProfile:
-    if channel.id == settings.shop2_channel_id:
-        slot = 2
-    else:
-        slot = 1
+    slot = 2 if channel.id == settings.shop2_channel_id else 1
     return ShopProfile(
         slot=slot,
         name=_value(settings, slot, "name", f"SHOP {slot}"),
@@ -86,8 +76,12 @@ def profile_for_channel(settings: Settings, channel: Channel) -> ShopProfile:
     )
 
 
+def profile_for_slot(settings: Settings, slot: int) -> ShopProfile:
+    dummy = Channel(id=getattr(settings, f"shop{slot}_channel_id"), name=f"SHOP {slot}", handle="")
+    return profile_for_channel(settings, dummy)
+
+
 def apply_profile_to_channel(channel: Channel, profile: ShopProfile) -> None:
-    # Non-secret identifiers may safely be persisted by normal SQLAlchemy commits.
     if profile.shop_cipher and not channel.shop_cipher:
         channel.shop_cipher = profile.shop_cipher
     if profile.shop_id and not channel.tiktok_shop_id:
@@ -123,8 +117,8 @@ def _ads_settings(base: Settings, p: ShopProfile) -> Settings:
     )
 
 
-class DualTikTokShopProvider(ShopProvider):
-    """Routes every Shop API call to the credential set belonging to that channel."""
+class DualTikTokShopProvider(TikTokShopProvider):
+    """Routes Shop API calls to SHOP 1 or SHOP 2 without sharing secrets."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -155,8 +149,27 @@ class DualTikTokShopProvider(ShopProvider):
         provider, _ = self.provider_for(channel)
         return await provider.get_authorized_shops()
 
+    async def get_authorized_shops(self, token_shop_cipher: str = ""):
+        output = []
+        for slot in (1, 2):
+            p = profile_for_slot(self.settings, slot)
+            if not (p.app_key and p.app_secret and p.access_token):
+                continue
+            channel = Channel(
+                id=p.channel_id,
+                name=p.name,
+                handle="",
+                shop_cipher=p.shop_cipher or None,
+                tiktok_shop_id=p.shop_id or None,
+                advertiser_id=p.advertiser_id or None,
+            )
+            provider, _ = self.provider_for(channel)
+            shops = await provider.get_authorized_shops()
+            output.extend([{**shop, "credential_profile": p.name, "profile_slot": slot} for shop in shops])
+        return output
 
-class DualTikTokAdsProvider(AdsProvider):
+
+class DualTikTokAdsProvider(TikTokAdsProvider):
     def __init__(self, settings: Settings):
         self.settings = settings
         self._providers: dict[int, TikTokAdsProvider] = {}
@@ -172,9 +185,10 @@ class DualTikTokAdsProvider(AdsProvider):
 class DualLiveStatusProvider(LiveStatusProvider):
     """Automatic detector for two independent shops.
 
-    Each shop can use its own LIVE-status endpoint, token, JSON path and expected values.
-    If TikTok gives a signed Shop Open API endpoint, set AUTH_MODE=TIKTOK_SHOP.
-    Otherwise BEARER/NONE supports a partner/middleware status endpoint without code changes.
+    Each shop has its own status URL/token/JSON path. AUTH_MODE=TIKTOK_SHOP
+    uses the same signed Shop credentials for that shop; BEARER/NONE supports
+    an approved partner or middleware endpoint. Missing endpoint means UNKNOWN,
+    never a false OFFLINE signal.
     """
 
     def __init__(self, settings: Settings):
