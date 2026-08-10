@@ -19,7 +19,6 @@ from .live_models import LiveCoreSnapshot
 from .live_runtime import (
     ads_client,
     get_affiliate_orders,
-    get_live_metrics,
     get_live_signal,
     normalized_live_metric,
     profile_for_channel,
@@ -29,6 +28,7 @@ from .models import AdsSnapshot, Alert, AppSetting, Channel, LiveMetricSnapshot,
 from .providers import TikTokShopProvider
 from .realtime import manager
 from .services import _choose_team, create_alert, create_metric_snapshot, local_shift, snapshot_type, start_session, stop_session, sync_normalized_order
+from .tiktok_analytics import get_best_live_metrics
 
 settings = get_settings()
 monitor_state: dict[str, Any] = {"last_cycle_at": None, "last_cycle_duration_ms": None, "channels": {}}
@@ -138,8 +138,7 @@ async def sync_session(session_id: int, *, record_live_core: bool = True, record
         watermark = _aware(latest_metric.timestamp) if latest_metric else None
         orders_from = max(started, (watermark or started) - timedelta(minutes=10))
 
-        # 1) General Shop orders are stored, but NOT assumed to be LIVE just because
-        # they were created while a stream was running.
+        # General Shop orders are stored, but never assumed to be LIVE from time alone.
         raw_orders = await shop.get_orders(channel, orders_from, now)
         normalized_count = 0
         touched_parent_ids: set[str] = set()
@@ -154,8 +153,7 @@ async def sync_session(session_id: int, *, record_live_core: bool = True, record
         db.flush()
         detach_unconfirmed_session_orders(db, session.id, [x for x in touched_parent_ids if x])
 
-        # 2) TikTok Affiliate Orders is the order-level source attribution API.
-        # content_type/content_id tells us LIVE vs VIDEO/LINKSHARE/SHOP/etc.
+        # Affiliate Orders provides explicit content_type/content_id attribution.
         attribution_counts: dict[str, int] = {}
         affiliate_ok = False
         try:
@@ -169,7 +167,6 @@ async def sync_session(session_id: int, *, record_live_core: bool = True, record
             )
             affiliate_ok = True
         except Exception as exc:
-            # This scope may not be approved yet. Never fall back to time-based LIVE attribution.
             if not _recent_alert_exists(db, channel.id, "AFFILIATE_ATTRIBUTION_WARNING"):
                 create_alert(
                     db,
@@ -181,12 +178,9 @@ async def sync_session(session_id: int, *, record_live_core: bool = True, record
                     channel_id=channel.id,
                 )
 
-        # 3) Return/refund API updates order state. Only exactly attributed LIVE
-        # order rows influence LIVE order-level refund totals.
         raw_returns = await shop.get_returns(channel, max(started, now - timedelta(days=8)), now)
         return_count = _apply_returns(db, channel, raw_returns)
 
-        # 4) Ads are scoped to the session time window.
         ads_ok = False
         try:
             ad = await ads.get_metrics(channel, started, ended or now)
@@ -208,11 +202,11 @@ async def sync_session(session_id: int, *, record_live_core: bool = True, record
             if not _recent_alert_exists(db, channel.id, "ADS_SYNC_WARNING"):
                 create_alert(db, "ADS_SYNC_WARNING", "ADS SYNC WARNING", f"{channel.name}: {exc}", severity="WARNING", session_id=session.id, channel_id=channel.id)
 
-        # 5) LIVE Analytics is the source of truth for session GMV/order KPI.
+        # Official LIVE Core Stats by live_room_id is the primary KPI source.
         live_core_ok = False
         if record_live_core:
             try:
-                values = await get_live_metrics(channel, _active_room(db, channel.id))
+                values = await get_best_live_metrics(channel, _active_room(db, channel.id))
                 if values:
                     db.add(
                         LiveCoreSnapshot(
@@ -302,7 +296,6 @@ async def monitor_cycle() -> None:
             elif signal["status"] == "OFFLINE" and active:
                 session_id = active.id
                 db.commit()
-                # Final sync while the active live_room_id is still available.
                 try:
                     await sync_session(session_id)
                 except Exception as exc:
@@ -318,8 +311,6 @@ async def monitor_cycle() -> None:
                     )
                     if closing and closing.status == SessionStatus.LIVE.value:
                         stop_session(cdb, closing)
-                        # stop_session creates T+0 for backward compatibility; refresh
-                        # it immediately using LIVE Analytics + exact attributed orders.
                         refresh_refund_snapshot(cdb, closing, 0)
                         _set_active_room(cdb, channel.id, None)
                         cdb.commit()
