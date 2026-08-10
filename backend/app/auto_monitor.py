@@ -27,7 +27,8 @@ from .live_runtime import (
 from .models import AdsSnapshot, Alert, AppSetting, Channel, LiveMetricSnapshot, LiveSession, Order, RefundSnapshot, SessionStatus
 from .providers import TikTokShopProvider
 from .realtime import manager
-from .services import _choose_team, create_alert, create_metric_snapshot, local_shift, snapshot_type, start_session, stop_session, sync_normalized_order
+from .schedule import scheduled_team, vietnam_date
+from .services import create_alert, create_metric_snapshot, local_shift, snapshot_type, start_session, stop_session, sync_normalized_order
 from .tiktok_analytics import get_best_live_metrics
 
 settings = get_settings()
@@ -286,7 +287,22 @@ async def monitor_cycle() -> None:
 
             if signal["status"] == "LIVE" and not active:
                 shift = local_shift()
-                team = _choose_team(db, channel, shift)
+                try:
+                    team = scheduled_team(db, channel, shift)
+                except RuntimeError as exc:
+                    state.update(error=str(exc), schedule_date=vietnam_date().isoformat(), session_id=None)
+                    if not _recent_alert_exists(db, channel.id, "SCHEDULE_MISSING"):
+                        create_alert(
+                            db,
+                            "SCHEDULE_MISSING",
+                            "CHƯA PHÂN CA HÔM NAY",
+                            str(exc),
+                            severity="WARNING",
+                            channel_id=channel.id,
+                        )
+                    db.commit()
+                    monitor_state["channels"][str(channel.id)] = state
+                    continue
                 active = start_session(db, channel, team, shift, "AUTO_API")
                 _set_active_room(db, channel.id, signal.get("live_room_id"))
                 db.commit()
