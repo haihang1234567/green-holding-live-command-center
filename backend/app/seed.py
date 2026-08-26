@@ -38,7 +38,18 @@ def purge_mock_data(db: Session) -> None:
 
 def seed_database(db: Session) -> None:
     db.execute(delete(DailyTeamAssignment))
-    db.execute(delete(Alert).where(Alert.alert_type == "SCHEDULE_MISSING"))
+    db.execute(
+        delete(Alert).where(
+            Alert.alert_type.in_(
+                [
+                    "SCHEDULE_MISSING",
+                    "AFFILIATE_ATTRIBUTION_WARNING",
+                    "LIVE_METRIC_WARNING",
+                    "ADS_SYNC_WARNING",
+                ]
+            )
+        )
+    )
     db.commit()
 
     if settings.purge_mock_data:

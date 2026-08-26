@@ -65,6 +65,13 @@ def _recent_alert_exists(db, channel_id: int, alert_type: str, minutes: int = 30
     )
 
 
+def _safe_error(exc: Exception) -> str:
+    """Return a useful error without leaking signed TikTok request URLs."""
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    return f"TikTok API HTTP {status_code}" if status_code else type(exc).__name__
+
+
 def _api_team(db) -> Team:
     """Internal owner for API sessions; no operator scheduling is required."""
     team = db.scalar(select(Team).where(Team.name == "TikTok API"))
@@ -134,8 +141,7 @@ async def sync_session(session_id: int, *, record_live_core: bool = True, record
             return {"ok": True, "mode": "MOCK", "orders": 0, "returns": 0, "ads": False, "live_core": False}
 
         channel = session.channel
-        shop, _ = shop_client(channel)
-        ads, _ = ads_client(channel)
+        shop, profile = shop_client(channel)
         now = datetime.now(timezone.utc)
         started = _aware(session.started_at) or now
         ended = _aware(session.ended_at)
@@ -163,56 +169,59 @@ async def sync_session(session_id: int, *, record_live_core: bool = True, record
         db.flush()
         detach_unconfirmed_session_orders(db, session.id, [x for x in touched_parent_ids if x])
 
-        # Affiliate Orders provides explicit content_type/content_id attribution.
+        # Affiliate is optional and requires a separate approved permission.
         attribution_counts: dict[str, int] = {}
         affiliate_ok = False
-        try:
-            affiliate_orders = await get_affiliate_orders(channel, started, ended or now)
-            attribution_counts = upsert_affiliate_attributions(
-                db,
-                channel_id=channel.id,
-                session_id=session.id,
-                live_room_id=_active_room(db, channel.id),
-                raw_orders=affiliate_orders,
-            )
-            affiliate_ok = True
-        except Exception as exc:
-            if not _recent_alert_exists(db, channel.id, "AFFILIATE_ATTRIBUTION_WARNING"):
-                create_alert(
+        if settings.enable_affiliate_attribution:
+            try:
+                affiliate_orders = await get_affiliate_orders(channel, started, ended or now)
+                attribution_counts = upsert_affiliate_attributions(
                     db,
-                    "AFFILIATE_ATTRIBUTION_WARNING",
-                    "AFFILIATE ATTRIBUTION WARNING",
-                    f"{channel.name}: {exc}",
-                    severity="WARNING",
-                    session_id=session.id,
                     channel_id=channel.id,
+                    session_id=session.id,
+                    live_room_id=_active_room(db, channel.id),
+                    raw_orders=affiliate_orders,
                 )
+                affiliate_ok = True
+            except Exception as exc:
+                if not _recent_alert_exists(db, channel.id, "AFFILIATE_ATTRIBUTION_WARNING"):
+                    create_alert(
+                        db,
+                        "AFFILIATE_ATTRIBUTION_WARNING",
+                        "AFFILIATE ATTRIBUTION WARNING",
+                        f"{channel.name}: {_safe_error(exc)}",
+                        severity="WARNING",
+                        session_id=session.id,
+                        channel_id=channel.id,
+                    )
 
         raw_returns = await shop.get_returns(channel, max(started, now - timedelta(days=8)), now)
         return_count = _apply_returns(db, channel, raw_returns)
 
         ads_ok = False
-        try:
-            ad = await ads.get_metrics(channel, started, ended or now)
-            if ad:
-                db.add(
-                    AdsSnapshot(
-                        live_session_id=session.id,
-                        timestamp=now,
-                        spend=ad.get("spend", 0),
-                        impressions=ad.get("impressions", 0),
-                        clicks=ad.get("clicks", 0),
-                        orders=ad.get("orders", 0),
-                        gross_revenue=ad.get("gross_revenue", 0),
-                        roas=ad.get("roas", 0),
+        if profile.ads_access_token and profile.advertiser_id:
+            ads, _ = ads_client(channel)
+            try:
+                ad = await ads.get_metrics(channel, started, ended or now)
+                if ad:
+                    db.add(
+                        AdsSnapshot(
+                            live_session_id=session.id,
+                            timestamp=now,
+                            spend=ad.get("spend", 0),
+                            impressions=ad.get("impressions", 0),
+                            clicks=ad.get("clicks", 0),
+                            orders=ad.get("orders", 0),
+                            gross_revenue=ad.get("gross_revenue", 0),
+                            roas=ad.get("roas", 0),
+                        )
                     )
-                )
-                ads_ok = True
-        except Exception as exc:
-            if not _recent_alert_exists(db, channel.id, "ADS_SYNC_WARNING"):
-                create_alert(db, "ADS_SYNC_WARNING", "ADS SYNC WARNING", f"{channel.name}: {exc}", severity="WARNING", session_id=session.id, channel_id=channel.id)
+                    ads_ok = True
+            except Exception as exc:
+                if not _recent_alert_exists(db, channel.id, "ADS_SYNC_WARNING"):
+                    create_alert(db, "ADS_SYNC_WARNING", "ADS SYNC WARNING", f"{channel.name}: {_safe_error(exc)}", severity="WARNING", session_id=session.id, channel_id=channel.id)
 
-        # Official LIVE Core Stats by live_room_id is the primary KPI source.
+        # Seller-authorized Shop LIVE Performance is the primary KPI source.
         live_core_ok = False
         if record_live_core:
             try:
@@ -240,7 +249,7 @@ async def sync_session(session_id: int, *, record_live_core: bool = True, record
                     live_core_ok = True
             except Exception as exc:
                 if not _recent_alert_exists(db, channel.id, "LIVE_METRIC_WARNING"):
-                    create_alert(db, "LIVE_METRIC_WARNING", "LIVE METRIC WARNING", f"{channel.name}: {exc}", severity="WARNING", session_id=session.id, channel_id=channel.id)
+                    create_alert(db, "LIVE_METRIC_WARNING", "LIVE METRIC WARNING", f"{channel.name}: {_safe_error(exc)}", severity="WARNING", session_id=session.id, channel_id=channel.id)
 
         db.flush()
         if record_metric:
@@ -280,9 +289,9 @@ async def monitor_cycle() -> None:
                 signal = await get_live_signal(channel)
                 state.update(signal=signal["status"], live_room_id=signal.get("live_room_id"), error=None)
             except Exception as exc:
-                state.update(signal="UNKNOWN", error=str(exc))
+                state.update(signal="UNKNOWN", error=_safe_error(exc))
                 if not _recent_alert_exists(db, channel.id, "LIVE_STATUS_ERROR"):
-                    create_alert(db, "LIVE_STATUS_ERROR", "LIVE STATUS ERROR", f"{channel.name}: {exc}", severity="WARNING", channel_id=channel.id)
+                    create_alert(db, "LIVE_STATUS_ERROR", "LIVE STATUS ERROR", f"{channel.name}: {_safe_error(exc)}", severity="WARNING", channel_id=channel.id)
                 db.commit()
                 monitor_state["channels"][str(channel.id)] = state
                 continue
@@ -311,7 +320,7 @@ async def monitor_cycle() -> None:
                 except Exception as exc:
                     with SessionLocal() as adb:
                         if not _recent_alert_exists(adb, channel.id, "FINAL_SYNC_WARNING"):
-                            create_alert(adb, "FINAL_SYNC_WARNING", "FINAL SYNC WARNING", f"{channel.name}: {exc}", severity="WARNING", session_id=session_id, channel_id=channel.id)
+                            create_alert(adb, "FINAL_SYNC_WARNING", "FINAL SYNC WARNING", f"{channel.name}: {_safe_error(exc)}", severity="WARNING", session_id=session_id, channel_id=channel.id)
                             adb.commit()
                 with SessionLocal() as cdb:
                     closing = cdb.scalar(
@@ -343,7 +352,7 @@ async def monitor_cycle() -> None:
             except Exception as exc:
                 with SessionLocal() as adb:
                     if not _recent_alert_exists(adb, channel_id, "SHOP_SYNC_ERROR"):
-                        create_alert(adb, "SHOP_SYNC_ERROR", "SHOP SYNC ERROR", str(exc), severity="WARNING", session_id=session_id, channel_id=channel_id)
+                        create_alert(adb, "SHOP_SYNC_ERROR", "SHOP SYNC ERROR", _safe_error(exc), severity="WARNING", session_id=session_id, channel_id=channel_id)
                         adb.commit()
 
     for event in events:
@@ -377,7 +386,7 @@ async def refund_cycle() -> None:
                 with SessionLocal() as db:
                     session = db.get(LiveSession, session_id)
                     if session and not _recent_alert_exists(db, session.channel_id, "REFUND_SYNC_ERROR"):
-                        create_alert(db, "REFUND_SYNC_ERROR", "REFUND SYNC ERROR", str(exc), severity="WARNING", session_id=session_id, channel_id=session.channel_id)
+                        create_alert(db, "REFUND_SYNC_ERROR", "REFUND SYNC ERROR", _safe_error(exc), severity="WARNING", session_id=session_id, channel_id=session.channel_id)
                         db.commit()
         with SessionLocal() as db:
             session = db.get(LiveSession, session_id)
