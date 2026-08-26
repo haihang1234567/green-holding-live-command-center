@@ -663,7 +663,15 @@ def dashboard_overview(db: Session, team_id: int | None = None) -> dict[str, Any
     now_vn = datetime.now(vn_tz)
     day_start_vn = now_vn.replace(hour=0, minute=0, second=0, microsecond=0)
     day_start = day_start_vn.astimezone(timezone.utc)
-    session_query = select(LiveSession).options(joinedload(LiveSession.channel), joinedload(LiveSession.team)).where(LiveSession.started_at >= day_start,LiveSession.channel_id.in_(settings.active_channel_ids))
+    sessions_updated_today = select(LiveMetricSnapshot.session_id).where(LiveMetricSnapshot.timestamp >= day_start)
+    session_query = (
+        select(LiveSession)
+        .options(joinedload(LiveSession.channel), joinedload(LiveSession.team))
+        .where(
+            or_(LiveSession.started_at >= day_start, LiveSession.id.in_(sessions_updated_today)),
+            LiveSession.channel_id.in_(settings.active_channel_ids),
+        )
+    )
     if team_id:
         session_query = session_query.where(LiveSession.team_id == team_id)
     sessions = db.scalars(session_query.order_by(LiveSession.started_at.desc())).unique().all()
