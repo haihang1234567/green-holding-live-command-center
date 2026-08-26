@@ -28,7 +28,7 @@ from .models import AdsSnapshot, Alert, AppSetting, Channel, LiveMetricSnapshot,
 from .providers import TikTokShopProvider
 from .realtime import manager
 from .services import create_alert, create_metric_snapshot, local_shift, snapshot_type, start_session, stop_session, sync_normalized_order
-from .tiktok_analytics import get_best_live_metrics
+from .tiktok_analytics import get_best_live_metrics, live_performance_values
 
 settings = get_settings()
 monitor_state: dict[str, Any] = {"last_cycle_at": None, "last_cycle_duration_ms": None, "channels": {}}
@@ -123,6 +123,105 @@ def _record_live_metric_snapshot(db, session: LiveSession) -> None:
             peak_viewers=(core.peak_viewers if core else None),
         )
     )
+
+
+def _epoch_datetime(value: Any) -> datetime | None:
+    if value in (None, "", 0, "0"):
+        return None
+    try:
+        epoch = int(value)
+        return datetime.fromtimestamp(epoch, tz=timezone.utc) if epoch > 0 else None
+    except (TypeError, ValueError, OSError):
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return _aware(parsed)
+        except (TypeError, ValueError):
+            return None
+
+
+def _ingest_performance_report(db, channel: Channel, item: dict[str, Any]) -> int | None:
+    """Persist the latest three-minute Shop LIVE report even when status is OFFLINE."""
+    external_id = str(item.get("id") or item.get("live_id") or item.get("live_room_id") or "")
+    started = _epoch_datetime(item.get("start_time"))
+    if not external_id or not started:
+        return None
+    vn_tz = timezone(timedelta(hours=7))
+    if started.astimezone(vn_tz).date() != datetime.now(vn_tz).date():
+        return None
+
+    ended = _epoch_datetime(item.get("end_time"))
+    session_code = f"TTS-{channel.id}-{external_id}"[:64]
+    session = db.scalar(
+        select(LiveSession)
+        .options(joinedload(LiveSession.channel), joinedload(LiveSession.team))
+        .where(LiveSession.session_code == session_code)
+    )
+    if not session:
+        session = db.scalar(
+            select(LiveSession)
+            .options(joinedload(LiveSession.channel), joinedload(LiveSession.team))
+            .where(
+                LiveSession.channel_id == channel.id,
+                LiveSession.started_at >= started - timedelta(minutes=15),
+                LiveSession.started_at <= started + timedelta(minutes=15),
+            )
+            .order_by(LiveSession.started_at.desc())
+            .limit(1)
+        )
+    if not session:
+        session = LiveSession(
+            session_code=session_code,
+            channel_id=channel.id,
+            team_id=_api_team(db).id,
+            shift=local_shift(started),
+            started_at=started,
+            ended_at=ended,
+            status=SessionStatus.ENDED.value if ended else SessionStatus.LIVE.value,
+            source="TIKTOK_ANALYTICS",
+        )
+        db.add(session)
+        db.flush()
+        session.channel = channel
+        session.team = _api_team(db)
+    else:
+        session.session_code = session_code
+        session.started_at = started
+        session.ended_at = ended
+        session.status = SessionStatus.ENDED.value if ended else SessionStatus.LIVE.value
+        if session.source != "MOCK":
+            session.source = "TIKTOK_ANALYTICS"
+
+    values = live_performance_values(item)
+    raw_json = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+    previous = db.scalar(
+        select(LiveCoreSnapshot)
+        .where(LiveCoreSnapshot.session_id == session.id)
+        .order_by(LiveCoreSnapshot.captured_at.desc())
+        .limit(1)
+    )
+    if not previous or previous.raw_json != raw_json:
+        db.add(
+            LiveCoreSnapshot(
+                session_id=session.id,
+                channel_id=channel.id,
+                captured_at=datetime.now(timezone.utc),
+                gmv=normalized_live_metric(values, "gmv"),
+                orders=normalized_live_metric(values, "orders", integer=True),
+                paid_orders=normalized_live_metric(values, "paid_orders", integer=True),
+                buyers=normalized_live_metric(values, "buyers", integer=True),
+                current_viewers=None,
+                peak_viewers=None,
+                product_views=None,
+                ctr=None,
+                comments=None,
+                shares=None,
+                avg_watch_seconds=None,
+                raw_json=raw_json,
+            )
+        )
+        db.flush()
+        _record_live_metric_snapshot(db, session)
+    return session.id
 
 
 async def sync_session(session_id: int, *, record_live_core: bool = True, record_metric: bool = True) -> dict[str, Any]:
@@ -288,6 +387,12 @@ async def monitor_cycle() -> None:
             try:
                 signal = await get_live_signal(channel)
                 state.update(signal=signal["status"], live_room_id=signal.get("live_room_id"), error=None)
+                latest_report = (signal.get("raw") or {}).get("latest_session")
+                if signal["status"] != "LIVE" and isinstance(latest_report, dict):
+                    report_session_id = _ingest_performance_report(db, channel, latest_report)
+                    if report_session_id:
+                        state["report_session_id"] = report_session_id
+                        db.commit()
             except Exception as exc:
                 state.update(signal="UNKNOWN", error=_safe_error(exc))
                 if not _recent_alert_exists(db, channel.id, "LIVE_STATUS_ERROR"):

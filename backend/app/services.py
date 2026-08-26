@@ -715,15 +715,20 @@ def dashboard_overview(db: Session, team_id: int | None = None) -> dict[str, Any
 
     channels = db.scalars(select(Channel).where(Channel.id.in_(settings.active_channel_ids)).order_by(Channel.id)).all()
     live_by_channel = {x.channel_id: x for x in sessions if x.status == SessionStatus.LIVE.value}
+    latest_by_channel: dict[int, LiveSession] = {}
+    for item in sessions:
+        latest_by_channel.setdefault(item.channel_id, item)
     channel_cards = []
     for channel in channels:
         active = live_by_channel.get(channel.id)
+        shown = active or latest_by_channel.get(channel.id)
         channel_cards.append({
             "id": channel.id,
             "name": channel.name,
             "handle": channel.handle,
             "status": "LIVE" if active else "OFFLINE",
-            "session": serialize_session(db, active) if active else None,
+            "session": serialize_session(db, shown) if shown else None,
+            "is_report": bool(shown and not active),
             "shop_configured": bool(channel.shop_cipher),
             "ads_configured": bool(channel.advertiser_id),
         })

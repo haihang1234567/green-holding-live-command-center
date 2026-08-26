@@ -8,6 +8,36 @@ from .live_runtime import get_live_metrics, shop_client
 from .models import Channel
 
 
+def _start_epoch(item: dict[str, Any]) -> int:
+    try:
+        return int(item.get("start_time") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def live_performance_values(selected: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one Shop LIVE Performance session without another API call."""
+    sales = selected.get("sales_performance") or {}
+    if not isinstance(sales, dict):
+        sales = {}
+    return {
+        "gmv": sales.get("gmv"),
+        "orders": sales.get("created_sku_orders") or sales.get("sku_orders") or sales.get("main_orders"),
+        "paid_orders": sales.get("sku_orders") or sales.get("main_orders"),
+        "buyers": sales.get("customers"),
+        "current_viewers": None,
+        "peak_viewers": None,
+        "product_views": None,
+        "ctr": None,
+        "comments": None,
+        "shares": None,
+        "avg_watch_seconds": None,
+        "items_sold": sales.get("items_sold") or sales.get("unit_sold") or sales.get("units_sold"),
+        "raw": selected,
+        "source": "TIKTOK_SHOP_LIVE_PERFORMANCE",
+    }
+
+
 async def get_best_live_metrics(channel: Channel, live_room_id: str | None) -> dict[str, Any] | None:
     """Read seller-authorized metrics from Shop LIVE Performance.
 
@@ -34,7 +64,7 @@ async def get_best_live_metrics(channel: Channel, live_room_id: str | None) -> d
             None,
         )
     if selected is None:
-        selected = next(
+        active = next(
             (
                 item
                 for item in sessions
@@ -42,29 +72,12 @@ async def get_best_live_metrics(channel: Channel, live_room_id: str | None) -> d
                 in {"LIVE", "ONGOING", "IN_PROGRESS", "STREAMING"}
                 or not item.get("end_time")
             ),
-            sessions[0] if sessions else None,
+            None,
         )
+        selected = active or (max(sessions, key=_start_epoch) if sessions else None)
 
     if selected:
-        sales = selected.get("sales_performance") or {}
-        if not isinstance(sales, dict):
-            sales = {}
-        return {
-            "gmv": sales.get("gmv"),
-            "orders": sales.get("created_sku_orders") or sales.get("sku_orders") or sales.get("main_orders"),
-            "paid_orders": sales.get("sku_orders") or sales.get("main_orders"),
-            "buyers": sales.get("customers"),
-            "current_viewers": None,
-            "peak_viewers": None,
-            "product_views": None,
-            "ctr": None,
-            "comments": None,
-            "shares": None,
-            "avg_watch_seconds": None,
-            "items_sold": sales.get("items_sold") or sales.get("unit_sold") or sales.get("units_sold"),
-            "raw": selected,
-            "source": "TIKTOK_SHOP_LIVE_PERFORMANCE",
-        }
+        return live_performance_values(selected)
 
     # Preserve support for an explicitly configured custom metrics endpoint.
     return await get_live_metrics(channel, live_room_id)

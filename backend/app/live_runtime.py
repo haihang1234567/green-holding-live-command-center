@@ -244,10 +244,20 @@ async def get_live_signal(channel: Channel) -> dict[str, Any]:
         room_id = None
         if active:
             room_id = active.get("id") or active.get("live_id") or active.get("live_room_id")
+        def start_epoch(item: dict[str, Any]) -> int:
+            try:
+                return int(item.get("start_time") or 0)
+            except (TypeError, ValueError):
+                return 0
+        latest = max(sessions, key=start_epoch) if sessions else None
         return {
             "status": "LIVE" if active else "OFFLINE",
             "live_room_id": str(room_id) if room_id not in (None, "") else None,
-            "raw": {"source": "TIKTOK_SHOP_LIVE_PERFORMANCE", "sessions_found": len(sessions)},
+            "raw": {
+                "source": "TIKTOK_SHOP_LIVE_PERFORMANCE",
+                "sessions_found": len(sessions),
+                "latest_session": latest,
+            },
         }
     if not p.live_status_url:
         return {"status": "UNKNOWN", "live_room_id": None, "raw": {"reason": "live_status_url_missing"}}
