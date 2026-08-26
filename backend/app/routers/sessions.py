@@ -6,12 +6,14 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..attribution import override_serialized_session, session_attribution_summary
 from ..database import get_db
+from ..config import get_settings
 from ..live_models import LiveCoreSnapshot
 from ..models import LiveMetricSnapshot, LiveSession, RefundSnapshot, User, UserRole
 from ..security import get_current_user
 from ..services import serialize_session
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+settings = get_settings()
 
 
 @router.get("")
@@ -23,7 +25,7 @@ def list_sessions(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = select(LiveSession).options(joinedload(LiveSession.channel), joinedload(LiveSession.team))
+    query = select(LiveSession).options(joinedload(LiveSession.channel), joinedload(LiveSession.team)).where(LiveSession.channel_id.in_(settings.active_channel_ids))
     if status:
         query = query.where(LiveSession.status == status.upper())
     if user.role == UserRole.TEAM.value:
@@ -41,7 +43,7 @@ def get_session(session_id: int, db: Session = Depends(get_db), user: User = Dep
     session = db.scalar(
         select(LiveSession)
         .options(joinedload(LiveSession.channel), joinedload(LiveSession.team))
-        .where(LiveSession.id == session_id)
+        .where(LiveSession.id == session_id,LiveSession.channel_id.in_(settings.active_channel_ids))
     )
     if not session:
         raise HTTPException(404, "Không tìm thấy phiên LIVE")

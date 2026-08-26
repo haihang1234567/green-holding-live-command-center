@@ -256,7 +256,7 @@ async def monitor_cycle() -> None:
     began = datetime.now(timezone.utc)
     events: list[dict[str, Any]] = []
     with SessionLocal() as db:
-        ids = list(db.scalars(select(Channel.id).where(Channel.polling_enabled.is_(True)).order_by(Channel.id)).all())
+        ids = list(db.scalars(select(Channel.id).where(Channel.id.in_(settings.active_channel_ids),Channel.polling_enabled.is_(True)).order_by(Channel.id)).all())
 
     for channel_id in ids:
         signal: dict[str, Any] = {"status": "UNKNOWN"}
@@ -363,7 +363,7 @@ async def refund_cycle() -> None:
     now = datetime.now(timezone.utc)
     due: dict[int, list[tuple[int, bool]]] = {}
     with SessionLocal() as db:
-        sessions = db.scalars(select(LiveSession).where(LiveSession.status == SessionStatus.ENDED.value, LiveSession.ended_at.is_not(None))).all()
+        sessions = db.scalars(select(LiveSession).where(LiveSession.status == SessionStatus.ENDED.value,LiveSession.channel_id.in_(settings.active_channel_ids),LiveSession.ended_at.is_not(None))).all()
         for session in sessions:
             elapsed = (now - (_aware(session.ended_at) or now)).total_seconds() / 3600
             items: list[tuple[int, bool]] = []

@@ -436,7 +436,7 @@ async def poll_live_statuses() -> None:
         return
     changed: list[dict[str, Any]] = []
     with SessionLocal() as db:
-        channels = db.scalars(select(Channel).where(Channel.polling_enabled.is_(True)).order_by(Channel.id)).all()
+        channels = db.scalars(select(Channel).where(Channel.id.in_(settings.active_channel_ids),Channel.polling_enabled.is_(True)).order_by(Channel.id)).all()
         for channel in channels:
             try:
                 external_status = await providers.live.get_channel_status(channel)
@@ -465,7 +465,7 @@ async def poll_live_statuses() -> None:
 
 async def sync_live_sessions() -> None:
     with SessionLocal() as db:
-        ids = db.scalars(select(LiveSession.id).where(LiveSession.status == SessionStatus.LIVE.value)).all()
+        ids = db.scalars(select(LiveSession.id).where(LiveSession.status == SessionStatus.LIVE.value,LiveSession.channel_id.in_(settings.active_channel_ids))).all()
     if settings.data_provider.upper() == "TIKTOK":
         for session_id in ids:
             try:
@@ -644,7 +644,7 @@ def dashboard_overview(db: Session, team_id: int | None = None) -> dict[str, Any
     now_vn = datetime.now(vn_tz)
     day_start_vn = now_vn.replace(hour=0, minute=0, second=0, microsecond=0)
     day_start = day_start_vn.astimezone(timezone.utc)
-    session_query = select(LiveSession).options(joinedload(LiveSession.channel), joinedload(LiveSession.team)).where(LiveSession.started_at >= day_start)
+    session_query = select(LiveSession).options(joinedload(LiveSession.channel), joinedload(LiveSession.team)).where(LiveSession.started_at >= day_start,LiveSession.channel_id.in_(settings.active_channel_ids))
     if team_id:
         session_query = session_query.where(LiveSession.team_id == team_id)
     sessions = db.scalars(session_query.order_by(LiveSession.started_at.desc())).unique().all()
@@ -674,7 +674,7 @@ def dashboard_overview(db: Session, team_id: int | None = None) -> dict[str, Any
         ranking.append(row)
     ranking.sort(key=lambda x: x["gmv"], reverse=True)
 
-    order_query = select(Order.product_name, func.sum(Order.payment_amount).label("revenue"), func.sum(Order.quantity).label("quantity")).where(Order.created_at >= day_start)
+    order_query = select(Order.product_name, func.sum(Order.payment_amount).label("revenue"), func.sum(Order.quantity).label("quantity")).where(Order.created_at >= day_start,Order.channel_id.in_(settings.active_channel_ids))
     if team_id:
         order_query = order_query.join(LiveSession, Order.live_session_id == LiveSession.id).where(LiveSession.team_id == team_id)
     top_skus = db.execute(order_query.group_by(Order.product_name).order_by(func.sum(Order.payment_amount).desc()).limit(8)).all()
@@ -682,19 +682,19 @@ def dashboard_overview(db: Session, team_id: int | None = None) -> dict[str, Any
     metric_query = (
         select(LiveMetricSnapshot)
         .join(LiveSession, LiveMetricSnapshot.session_id == LiveSession.id)
-        .where(LiveMetricSnapshot.timestamp >= day_start)
+        .where(LiveMetricSnapshot.timestamp >= day_start,LiveSession.channel_id.in_(settings.active_channel_ids))
     )
     if team_id:
         metric_query = metric_query.where(LiveSession.team_id == team_id)
     metric_rows = db.scalars(metric_query.order_by(LiveMetricSnapshot.timestamp)).all()
     timeline = [{"timestamp": x.timestamp, "gmv": as_float(x.gmv), "orders": x.orders, "ads_spend": as_float(x.ads_spend), "session_id": x.session_id} for x in metric_rows[-240:]]
 
-    alert_query = select(Alert).where(Alert.created_at >= day_start).order_by(Alert.created_at.desc()).limit(20)
+    alert_query = select(Alert).where(Alert.created_at >= day_start,or_(Alert.channel_id.in_(settings.active_channel_ids),Alert.channel_id.is_(None))).order_by(Alert.created_at.desc()).limit(20)
     if team_id:
         alert_query = alert_query.join(LiveSession, Alert.session_id == LiveSession.id, isouter=True).where(or_(LiveSession.team_id == team_id, Alert.session_id.is_(None)))
     alerts = db.scalars(alert_query).all()
 
-    channels = db.scalars(select(Channel).order_by(Channel.id)).all()
+    channels = db.scalars(select(Channel).where(Channel.id.in_(settings.active_channel_ids)).order_by(Channel.id)).all()
     live_by_channel = {x.channel_id: x for x in sessions if x.status == SessionStatus.LIVE.value}
     channel_cards = []
     for channel in channels:
@@ -711,6 +711,7 @@ def dashboard_overview(db: Session, team_id: int | None = None) -> dict[str, Any
 
     return {
         "mode": settings.data_provider.upper(),
+        "active_shop_count": len(settings.active_channel_ids),
         "live_status_mode": settings.live_status_provider.upper(),
         "kpis": {
             "gmv": gmv,

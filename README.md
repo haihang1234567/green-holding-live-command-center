@@ -1,13 +1,12 @@
 # GREEN HOLDING LIVE COMMAND CENTER v3
 
-Hệ thống giám sát **2 TikTok Shop độc lập**. Dashboard không phát LIVE. TikTok/LIVE Studio bắt đầu phiên ở bên ngoài; server tự phát hiện trạng thái, tự tạo/chốt phiên và ghi nhận dữ liệu theo chu kỳ cố định.
+Hệ thống hiện giám sát **1 TikTok Shop**. Dashboard không phát LIVE. TikTok/LIVE Studio bắt đầu phiên ở bên ngoài; server tự phát hiện trạng thái, tự tạo/chốt phiên và ghi nhận dữ liệu theo chu kỳ cố định. Kiến trúc vẫn sẵn sàng mở Shop 2 sau này bằng cấu hình.
 
 ## Luồng production
 
-`Shop 1 API + Shop 2 API -> detect LIVE -> create session -> sync every 180s -> detect OFFLINE -> final sync -> close session -> T+0/T+1H/T+3H/T+6H/T+12H/T+24H/T+48H/FINAL`
+`Shop 1 API -> detect LIVE -> create session -> sync every 180s -> detect OFFLINE -> final sync -> close session -> T+0/T+1H/T+3H/T+6H/T+12H/T+24H/T+48H/FINAL`
 
-- SHOP 1 và SHOP 2 có App Key/Secret/Access Token/Refresh Token/Shop Cipher/Ads Token riêng.
-- Không dùng chéo token giữa hai shop.
+- `ACTIVE_SHOP_COUNT=1` bảo đảm dashboard, báo cáo, lịch phân ca và polling chỉ dùng Shop 1.
 - Một scheduler duy nhất chạy mỗi `POLLING_INTERVAL_SECONDS=180`; nó vừa kiểm tra trạng thái vừa sync phiên LIVE, tránh race condition.
 - API lỗi/UNKNOWN không tự đóng phiên. Chỉ OFFLINE hợp lệ mới chốt phiên.
 - Khi OFFLINE, hệ thống final-sync Orders/Returns/Ads/LIVE metrics trước rồi mới tạo T+0.
@@ -26,11 +25,12 @@ docker compose up --build -d
 ```env
 DATA_PROVIDER=TIKTOK
 LIVE_STATUS_PROVIDER=AUTO
+ACTIVE_SHOP_COUNT=1
 POLLING_INTERVAL_SECONDS=180
 SEED_MOCK_DATA=false
 ```
 
-Điền toàn bộ `SHOP1_*` và `SHOP2_*` trong Render Environment. Map `*_JSON_PATH` theo đúng JSON response thực tế TikTok cấp; không cần sửa lại UI/database.
+Chỉ điền `TIKTOK_SHOP_APP_KEY`, `TIKTOK_SHOP_APP_SECRET`, `TIKTOK_OAUTH_STATE` và các biến `SHOP1_*` cần thiết trong Render Environment. Không cần cấu hình `SHOP2_*`. Map `*_JSON_PATH` theo đúng JSON response thực tế TikTok cấp; không cần sửa lại UI/database.
 
 ## Render
 

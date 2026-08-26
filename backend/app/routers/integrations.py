@@ -52,7 +52,8 @@ async def tiktok_callback(request:Request):
     if not code:
         return _page("Thiếu mã ủy quyền","TikTok không gửi code/auth_code về callback.",ok=False,status_code=400)
     if settings.tiktok_oauth_state:
-        allowed_states={settings.tiktok_oauth_state,f"{settings.tiktok_oauth_state}:shop1",f"{settings.tiktok_oauth_state}:shop2"}
+        allowed_states={settings.tiktok_oauth_state,f"{settings.tiktok_oauth_state}:shop1"}
+        if settings.active_shop_count>1:allowed_states.add(f"{settings.tiktok_oauth_state}:shop2")
         if not any(hmac.compare_digest(state,allowed) for allowed in allowed_states):
             return _page("State không hợp lệ","Yêu cầu ủy quyền không khớp cấu hình bảo mật.",ok=False,status_code=400)
     app_key,app_secret,auth_url=_oauth_credentials()
@@ -79,7 +80,7 @@ async def tiktok_callback(request:Request):
         selected_cipher=_shop_value(selected,"cipher","shop_cipher")
         selected_id=_shop_value(selected,"id","shop_id")
         state_slot=state.rsplit(":",1)[-1].lower()
-        slot=1 if state_slot in {"1","shop1","shop_1"} else 2 if state_slot in {"2","shop2","shop_2"} else 0
+        slot=1 if state_slot in {"1","shop1","shop_1"} or settings.active_shop_count==1 else 2 if state_slot in {"2","shop2","shop_2"} else 0
         if slot and selected_cipher:
             channel_id=settings.shop1_channel_id if slot==1 else settings.shop2_channel_id
             with SessionLocal() as db:
@@ -99,18 +100,20 @@ async def tiktok_callback(request:Request):
         return _page("Không hoàn tất ủy quyền","Backend không thể hoàn tất kết nối shop. Hãy kiểm tra quyền API và thử lại bằng authorization link mới.",ok=False,status_code=502)
 @router.get("/status")
 def status(db:Session=Depends(get_db),_=Depends(require_admin)):
-    channels=db.scalars(select(Channel).order_by(Channel.id)).all(); return {"data_provider":settings.data_provider.upper(),"live_status_provider":settings.live_status_provider.upper(),"polling_interval_seconds":settings.polling_interval_seconds,"refund_check_interval_seconds":180,"shops":[_profile_status(x) for x in channels],"monitor":monitor_state}
+    channels=db.scalars(select(Channel).where(Channel.id.in_(settings.active_channel_ids)).order_by(Channel.id)).all(); return {"data_provider":settings.data_provider.upper(),"live_status_provider":settings.live_status_provider.upper(),"active_shop_count":len(settings.active_channel_ids),"polling_interval_seconds":settings.polling_interval_seconds,"refund_check_interval_seconds":180,"shops":[_profile_status(x) for x in channels],"monitor":monitor_state}
 @router.get("/monitor/status")
 def monitor_status(db:Session=Depends(get_db),_=Depends(require_admin)):
-    channels=db.scalars(select(Channel).order_by(Channel.id)).all(); return {"mode":f"{settings.data_provider.upper()} / {settings.live_status_provider.upper()}","polling_interval_seconds":settings.polling_interval_seconds,"last_cycle_at":monitor_state.get("last_cycle_at"),"last_cycle_duration_ms":monitor_state.get("last_cycle_duration_ms"),"channels":[{**_profile_status(ch),"runtime":monitor_state.get("channels",{}).get(str(ch.id),{})} for ch in channels]}
+    channels=db.scalars(select(Channel).where(Channel.id.in_(settings.active_channel_ids)).order_by(Channel.id)).all(); return {"mode":f"{settings.data_provider.upper()} / {settings.live_status_provider.upper()}","active_shop_count":len(settings.active_channel_ids),"polling_interval_seconds":settings.polling_interval_seconds,"last_cycle_at":monitor_state.get("last_cycle_at"),"last_cycle_duration_ms":monitor_state.get("last_cycle_duration_ms"),"channels":[{**_profile_status(ch),"runtime":monitor_state.get("channels",{}).get(str(ch.id),{})} for ch in channels]}
 @router.post("/test/live/{channel_id}")
 async def test_live(channel_id:int,db:Session=Depends(get_db),_=Depends(require_admin)):
+    if channel_id not in settings.active_channel_ids:raise HTTPException(404,"Shop này chưa được kích hoạt")
     ch=db.get(Channel,channel_id)
     if not ch:raise HTTPException(404,"Không tìm thấy kênh")
     try:return {"ok":True,"result":await get_live_signal(ch)}
     except Exception as exc:raise HTTPException(502,str(exc)) from exc
 @router.post("/test/shop/{channel_id}")
 async def test_shop(channel_id:int,db:Session=Depends(get_db),_=Depends(require_admin)):
+    if channel_id not in settings.active_channel_ids:raise HTTPException(404,"Shop này chưa được kích hoạt")
     if settings.data_provider.upper()!="TIKTOK":raise HTTPException(409,"DATA_PROVIDER chưa đặt thành TIKTOK")
     ch=db.get(Channel,channel_id)
     if not ch:raise HTTPException(404,"Không tìm thấy kênh")
@@ -119,6 +122,7 @@ async def test_shop(channel_id:int,db:Session=Depends(get_db),_=Depends(require_
     except Exception as exc:raise HTTPException(502,str(exc)) from exc
 @router.post("/test/ads/{channel_id}")
 async def test_ads(channel_id:int,db:Session=Depends(get_db),_=Depends(require_admin)):
+    if channel_id not in settings.active_channel_ids:raise HTTPException(404,"Shop này chưa được kích hoạt")
     if settings.data_provider.upper()!="TIKTOK":raise HTTPException(409,"DATA_PROVIDER chưa đặt thành TIKTOK")
     ch=db.get(Channel,channel_id)
     if not ch:raise HTTPException(404,"Không tìm thấy kênh")

@@ -16,11 +16,13 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..config import get_settings
 from ..models import User, UserRole
 from ..security import get_current_user
 from ..services import dashboard_overview
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+settings = get_settings()
 
 
 def _data(db: Session, user: User):
@@ -119,7 +121,7 @@ def report_summary(
 ) -> dict:
     start, end = _range(date_from, date_to)
     query = select(LiveSession).options(joinedload(LiveSession.channel), joinedload(LiveSession.team)).where(
-        LiveSession.started_at >= start, LiveSession.started_at < end
+        LiveSession.started_at >= start, LiveSession.started_at < end,LiveSession.channel_id.in_(settings.active_channel_ids)
     )
     if user.role == UserRole.TEAM.value:
         query = query.where(LiveSession.team_id == user.team_id)

@@ -20,12 +20,12 @@ async def lifespan(app:FastAPI):
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:seed_database(db)
     tasks=start_background_tasks(); yield; await stop_background_tasks(tasks)
-app=FastAPI(title=settings.app_name,version="3.0.0",lifespan=lifespan)
+app=FastAPI(title=settings.app_name,version="3.1.0",lifespan=lifespan)
 app.add_middleware(CORSMiddleware,allow_origins=settings.cors_list,allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
 for router in (auth.router,dashboard.router,sessions.router,admin.router,data.router,integrations.router,reports.router,users.router,webhooks.router):app.include_router(router,prefix=settings.api_prefix)
 if settings.data_provider.upper()=="MOCK":app.include_router(mock.router,prefix=settings.api_prefix)
 @app.get("/health")
-def health():return {"status":"ok","app":settings.app_name,"version":"3.0.0","data_provider":settings.data_provider.upper(),"live_status_provider":settings.live_status_provider.upper(),"polling_interval_seconds":settings.polling_interval_seconds,"architecture":"two-shop-auto-monitor"}
+def health():return {"status":"ok","app":settings.app_name,"version":"3.1.0","data_provider":settings.data_provider.upper(),"live_status_provider":settings.live_status_provider.upper(),"active_shop_count":len(settings.active_channel_ids),"polling_interval_seconds":settings.polling_interval_seconds,"architecture":"active-shop-auto-monitor"}
 @app.websocket("/ws/dashboard")
 async def dashboard_ws(websocket:WebSocket):
     token=websocket.query_params.get("token","")

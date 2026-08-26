@@ -35,7 +35,7 @@ def _ensure_mock():
 
 
 def _active(db: Session, channel_id: int | None = None, session_id: int | None = None) -> LiveSession:
-    query = select(LiveSession).options(joinedload(LiveSession.channel), joinedload(LiveSession.team)).where(LiveSession.status == SessionStatus.LIVE.value)
+    query = select(LiveSession).options(joinedload(LiveSession.channel), joinedload(LiveSession.team)).where(LiveSession.status == SessionStatus.LIVE.value,LiveSession.channel_id.in_(settings.active_channel_ids))
     if session_id:
         query = query.where(LiveSession.id == session_id)
     if channel_id:
@@ -49,6 +49,8 @@ def _active(db: Session, channel_id: int | None = None, session_id: int | None =
 @router.post("/channels/{channel_id}/start")
 async def start(channel_id: int, payload: MockStart, db: Session = Depends(get_db), _=Depends(require_admin)):
     _ensure_mock()
+    if channel_id not in settings.active_channel_ids:
+        raise HTTPException(404, "Shop này chưa được kích hoạt")
     channel = db.get(Channel, channel_id)
     team = db.get(Team, payload.team_id)
     if not channel or not team:

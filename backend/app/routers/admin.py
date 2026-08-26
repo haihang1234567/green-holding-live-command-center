@@ -8,11 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..config import get_settings
 from ..models import Alert, AppSetting, Channel, Team
 from ..schedule import DailyTeamAssignment, day_schedule, vietnam_date
 from ..security import get_current_user, require_admin
 
 router = APIRouter(tags=["admin"])
+settings = get_settings()
 
 
 class ChannelUpdate(BaseModel):
@@ -48,7 +50,7 @@ SCHEDULE_FIELDS = {
 
 @router.get("/channels")
 def channels(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    rows = db.scalars(select(Channel).order_by(Channel.id)).all()
+    rows = db.scalars(select(Channel).where(Channel.id.in_(settings.active_channel_ids)).order_by(Channel.id)).all()
     is_admin = user.role == "ADMIN"
     return [{
         "id": x.id, "name": x.name, "handle": x.handle, "status": x.status,
@@ -62,6 +64,8 @@ def channels(db: Session = Depends(get_db), user=Depends(get_current_user)):
 
 @router.patch("/channels/{channel_id}")
 def update_channel(channel_id: int, payload: ChannelUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    if channel_id not in settings.active_channel_ids:
+        raise HTTPException(404, "Shop này chưa được kích hoạt")
     row = db.get(Channel, channel_id)
     if not row:
         raise HTTPException(404, "Không tìm thấy kênh")
@@ -81,7 +85,7 @@ def teams(db: Session = Depends(get_db), user=Depends(get_current_user)):
 
 @router.get("/alerts")
 def alerts(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    query = select(Alert).order_by(Alert.created_at.desc()).limit(200)
+    query = select(Alert).where(Alert.channel_id.in_(settings.active_channel_ids) | Alert.channel_id.is_(None)).order_by(Alert.created_at.desc()).limit(200)
     if user.role == "TEAM":
         from ..models import LiveSession
         query = query.join(LiveSession, Alert.session_id == LiveSession.id).where(LiveSession.team_id == user.team_id)
@@ -122,10 +126,12 @@ def update_thresholds(payload: ThresholdUpdate, db: Session = Depends(get_db), _
 @router.get("/settings/daily-schedule/{work_date}")
 def get_daily_schedule(work_date: date, db: Session = Depends(get_db), _=Depends(get_current_user)):
     assignments = day_schedule(db, work_date)
+    active_fields = [field for field, (channel_id, _) in SCHEDULE_FIELDS.items() if channel_id in settings.active_channel_ids]
     return {
         "date": work_date.isoformat(),
         "is_today_vietnam": work_date == vietnam_date(),
-        "complete": all(value is not None for value in assignments.values()),
+        "active_shop_count": len(settings.active_channel_ids),
+        "complete": all(assignments[field] is not None for field in active_fields),
         **assignments,
     }
 
@@ -135,6 +141,8 @@ def save_daily_schedule(work_date: date, payload: DailyScheduleUpdate, db: Sessi
     supplied = payload.model_dump(exclude_unset=True)
     for field, team_id in supplied.items():
         channel_id, shift = SCHEDULE_FIELDS[field]
+        if channel_id not in settings.active_channel_ids:
+            continue
         existing = db.scalar(
             select(DailyTeamAssignment).where(
                 DailyTeamAssignment.work_date == work_date,
@@ -154,9 +162,11 @@ def save_daily_schedule(work_date: date, payload: DailyScheduleUpdate, db: Sessi
             db.add(DailyTeamAssignment(work_date=work_date, channel_id=channel_id, shift=shift, team_id=team_id))
     db.commit()
     assignments = day_schedule(db, work_date)
+    active_fields = [field for field, (channel_id, _) in SCHEDULE_FIELDS.items() if channel_id in settings.active_channel_ids]
     return {
         "ok": True,
         "date": work_date.isoformat(),
-        "complete": all(value is not None for value in assignments.values()),
+        "active_shop_count": len(settings.active_channel_ids),
+        "complete": all(assignments[field] is not None for field in active_fields),
         **assignments,
     }

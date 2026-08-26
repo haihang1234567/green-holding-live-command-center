@@ -48,7 +48,7 @@ async def tiktok_shop(request: Request):
             return Response(status_code=200)
         db.add(WebhookEvent(event_key=event_key, source="TIKTOK_SHOP", event_type=event_type, payload_json=raw.decode("utf-8"), processed=False))
         if shop_id:
-            channel = db.scalar(select(Channel).where(Channel.tiktok_shop_id == shop_id))
+            channel = db.scalar(select(Channel).where(Channel.id.in_(settings.active_channel_ids),Channel.tiktok_shop_id == shop_id))
             if channel:
                 active_session_id = db.scalar(select(LiveSession.id).where(LiveSession.channel_id == channel.id, LiveSession.status == SessionStatus.LIVE.value))
         db.commit()

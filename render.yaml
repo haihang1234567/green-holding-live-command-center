@@ -21,6 +21,8 @@ services:
         value: MOCK
       - key: LIVE_STATUS_PROVIDER
         value: MOCK
+      - key: ACTIVE_SHOP_COUNT
+        value: "1"
       - key: POLLING_INTERVAL_SECONDS
         value: "180"
       - key: METRIC_SNAPSHOT_INTERVAL_SECONDS

@@ -12,23 +12,22 @@ https://green-holding-live-command-center.onrender.com/api/integrations/tiktok/c
 
 The callback exchanges the one-time authorization code on the backend, encrypts
 the resulting access/refresh tokens with `SECRET_KEY`, and stores them in
-PostgreSQL. Tokens are never rendered in the browser. When one app authorizes
-both shops, the App Key/Secret may be shared while each shop keeps its own token,
-refresh token, shop cipher, and shop ID.
+PostgreSQL. Tokens are never rendered in the browser. The current deployment
+uses one active shop (`ACTIVE_SHOP_COUNT=1`).
 
 Set `TIKTOK_OAUTH_STATE` to an unpredictable value and include it in the
 authorization link. To map automatically, use
-`state=<TIKTOK_OAUTH_STATE>:shop1` or
-`state=<TIKTOK_OAUTH_STATE>:shop2`. Without a slot suffix, map the returned shop
-cipher in **Kênh TikTok** after authorization.
+`state=<TIKTOK_OAUTH_STATE>:shop1`. With one active shop, the callback maps the
+returned shop cipher to Shop 1 automatically.
 
 Fill the backend environment variables:
 
 - `TIKTOK_SHOP_APP_KEY`
 - `TIKTOK_SHOP_APP_SECRET`
-- access/refresh token(s)
+- `TIKTOK_OAUTH_STATE`
 
-For two shops, use the JSON token maps keyed by `shop_cipher`. Then open **Kênh TikTok** in the admin UI and map each company channel to its `shop_cipher` and Shop ID.
+Do not configure `SHOP2_*`. The callback stores the access/refresh token securely;
+then open **Kênh TikTok** to verify the Shop Cipher and Shop ID mapping.
 
 Implemented adapter responsibilities:
 
