@@ -11,6 +11,7 @@ import httpx
 from .config import Settings, get_settings
 from .models import Channel
 from .providers import TikTokAdsProvider, TikTokShopProvider
+from .tiktok_credentials import load_shop_authorization, update_shop_tokens
 
 settings = get_settings()
 
@@ -170,8 +171,14 @@ def shop_client(channel: Channel) -> tuple[TikTokShopProvider, ShopProfile]:
     p = profile_for_channel(channel)
     apply_profile(channel, p)
     if p.slot not in _shop_clients:
-        _shop_clients[p.slot] = TikTokShopProvider(_shop_settings(p))
-    return _shop_clients[p.slot], p
+        _shop_clients[p.slot] = TikTokShopProvider(_shop_settings(p), token_store=update_shop_tokens)
+    client = _shop_clients[p.slot]
+    stored = load_shop_authorization(p.shop_cipher) if p.shop_cipher else None
+    if stored and stored.get("access_token"):
+        client._token_override[p.shop_cipher] = str(stored["access_token"])
+        if stored.get("refresh_token"):
+            client._refresh_override[p.shop_cipher] = str(stored["refresh_token"])
+    return client, p
 
 
 def ads_client(channel: Channel) -> tuple[TikTokAdsProvider, ShopProfile]:

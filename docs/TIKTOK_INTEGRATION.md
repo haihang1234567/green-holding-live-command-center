@@ -4,6 +4,24 @@ The application is deliberately tolerant of missing TikTok fields. Unknown/optio
 
 ## 1. TikTok Shop
 
+Configure this exact Seller authorization redirect URL in Partner Center:
+
+```text
+https://green-holding-live-command-center.onrender.com/api/integrations/tiktok/callback
+```
+
+The callback exchanges the one-time authorization code on the backend, encrypts
+the resulting access/refresh tokens with `SECRET_KEY`, and stores them in
+PostgreSQL. Tokens are never rendered in the browser. When one app authorizes
+both shops, the App Key/Secret may be shared while each shop keeps its own token,
+refresh token, shop cipher, and shop ID.
+
+Set `TIKTOK_OAUTH_STATE` to an unpredictable value and include it in the
+authorization link. To map automatically, use
+`state=<TIKTOK_OAUTH_STATE>:shop1` or
+`state=<TIKTOK_OAUTH_STATE>:shop2`. Without a slot suffix, map the returned shop
+cipher in **Kênh TikTok** after authorization.
+
 Fill the backend environment variables:
 
 - `TIKTOK_SHOP_APP_KEY`

@@ -3,17 +3,22 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from collections.abc import Callable
 from urllib.parse import urlparse
 
 import httpx
 
 from .config import Settings, get_settings
 from .models import Channel
+
+
+logger = logging.getLogger(__name__)
 
 
 def _money(value: Any) -> float:
@@ -127,10 +132,11 @@ class TikTokShopProvider(ShopProvider):
     Tokens remain backend-only. A per-shop token JSON map is supported for the two-shop setup.
     """
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, token_store: Callable[[str, str, str], None] | None = None):
         self.settings = settings
         self._token_override: dict[str, str] = {}
         self._refresh_override: dict[str, str] = {}
+        self._token_store = token_store
 
     def _token_for(self, shop_cipher: str) -> str:
         return (
@@ -185,6 +191,15 @@ class TikTokShopProvider(ShopProvider):
         self._token_override[shop_cipher] = data["access_token"]
         if data.get("refresh_token"):
             self._refresh_override[shop_cipher] = data["refresh_token"]
+        if self._token_store:
+            try:
+                self._token_store(
+                    shop_cipher,
+                    data["access_token"],
+                    data.get("refresh_token") or refresh_token,
+                )
+            except Exception:
+                logger.exception("Could not persist refreshed TikTok Shop token")
         return True
 
     async def _request(
@@ -238,7 +253,9 @@ class TikTokShopProvider(ShopProvider):
 
     async def get_authorized_shops(self, token_shop_cipher: str = "") -> list[dict[str, Any]]:
         # Special request without shop_cipher. Uses global token.
-        token = self.settings.tiktok_shop_access_token
+        token = self._token_for(token_shop_cipher) if token_shop_cipher else self.settings.tiktok_shop_access_token
+        if not token and self._token_override:
+            token = next(iter(self._token_override.values()))
         if not token:
             raise RuntimeError("Thiếu TIKTOK_SHOP_ACCESS_TOKEN")
         path = "/authorization/202309/shops"
