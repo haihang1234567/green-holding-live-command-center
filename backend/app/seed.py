@@ -46,6 +46,7 @@ def seed_database(db: Session) -> None:
                     "AFFILIATE_ATTRIBUTION_WARNING",
                     "LIVE_METRIC_WARNING",
                     "ADS_SYNC_WARNING",
+                    "SHOP_SYNC_ERROR",
                 ]
             )
         )

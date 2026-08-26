@@ -318,7 +318,14 @@ def evaluate_velocity_and_ads_alerts(db: Session, session: LiveSession) -> None:
 def sync_normalized_order(db: Session, session: LiveSession, channel: Channel, row: dict[str, Any], raw: dict[str, Any]) -> None:
     if not row.get("order_id"):
         return
-    existing = db.scalar(select(Order).where(Order.order_id == row["order_id"]))
+    # SessionLocal intentionally disables autoflush. Cache objects created during
+    # this transaction so duplicate order/SKU rows in one TikTok page cannot be
+    # queued as duplicate INSERTs before commit.
+    order_key = str(row["order_id"])
+    order_cache: dict[str, Order] = db.info.setdefault("sync_order_cache", {})
+    existing = order_cache.get(order_key)
+    if existing is None:
+        existing = db.scalar(select(Order).where(Order.order_id == order_key))
     payload = {
         "parent_order_id": row.get("parent_order_id") or row["order_id"],
         "live_session_id": session.id,
@@ -340,21 +347,33 @@ def sync_normalized_order(db: Session, session: LiveSession, channel: Channel, r
             setattr(existing, key, value)
         target = existing
     else:
-        target = Order(order_id=row["order_id"], **payload)
+        target = Order(order_id=order_key, **payload)
         db.add(target)
+    order_cache[order_key] = target
     if target.order_status.upper() in CANCEL_STATUSES and as_float(target.cancelled_amount) == 0:
         target.cancelled_amount = target.payment_amount
     if row.get("sku_id"):
-        product = db.scalar(select(Product).where(Product.sku_id == row["sku_id"], Product.channel_id == channel.id))
+        product_key = (str(row["sku_id"]), channel.id)
+        product_cache: dict[tuple[str, int], Product] = db.info.setdefault("sync_product_cache", {})
+        product = product_cache.get(product_key)
+        if product is None:
+            product = db.scalar(select(Product).where(Product.sku_id == product_key[0], Product.channel_id == channel.id))
         if not product:
-            db.add(Product(
+            product = Product(
                 product_id=row.get("product_id", ""),
-                sku_id=row["sku_id"],
+                sku_id=product_key[0],
                 product_name=row.get("product_name", ""),
                 price=(as_float(row.get("amount")) / max(1, int(row.get("quantity", 1)))),
                 currency=row.get("currency") or "VND",
                 channel_id=channel.id,
-            ))
+            )
+            db.add(product)
+        else:
+            product.product_id = row.get("product_id") or product.product_id
+            product.product_name = row.get("product_name") or product.product_name
+            product.price = as_float(row.get("amount")) / max(1, int(row.get("quantity", 1)))
+            product.currency = row.get("currency") or product.currency
+        product_cache[product_key] = product
 
 
 def apply_returns(db: Session, channel: Channel, returns: list[dict[str, Any]]) -> None:
