@@ -9,6 +9,7 @@ from .config import get_settings
 from .attribution_models import OrderAttribution
 from .live_models import LiveCoreSnapshot
 from .models import Alert, AdsSnapshot, AppSetting, Channel, LiveMetricSnapshot, LiveSession, Order, RefundSnapshot, SessionStatus, Team, User, UserRole
+from .schedule import DailyTeamAssignment
 from .security import hash_password
 from .services import add_mock_ads, add_mock_orders, create_metric_snapshot, create_refund_snapshot
 
@@ -36,6 +37,10 @@ def purge_mock_data(db: Session) -> None:
 
 
 def seed_database(db: Session) -> None:
+    db.execute(delete(DailyTeamAssignment))
+    db.execute(delete(Alert).where(Alert.alert_type == "SCHEDULE_MISSING"))
+    db.commit()
+
     if settings.purge_mock_data:
         purge_mock_data(db)
 

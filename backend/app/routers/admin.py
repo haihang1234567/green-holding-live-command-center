@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -10,7 +8,6 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..config import get_settings
 from ..models import Alert, AppSetting, Channel, Team
-from ..schedule import DailyTeamAssignment, day_schedule, vietnam_date
 from ..security import get_current_user, require_admin
 
 router = APIRouter(tags=["admin"])
@@ -27,25 +24,10 @@ class ChannelUpdate(BaseModel):
     polling_enabled: bool | None = None
 
 
-class DailyScheduleUpdate(BaseModel):
-    channel_1_ca_sang_team_id: int | None = None
-    channel_1_ca_toi_team_id: int | None = None
-    channel_2_ca_sang_team_id: int | None = None
-    channel_2_ca_toi_team_id: int | None = None
-
-
 class ThresholdUpdate(BaseModel):
     refund_warning_percent: float | None = None
     ads_gmv_warning_percent: float | None = None
     gmv_velocity_drop_percent: float | None = None
-
-
-SCHEDULE_FIELDS = {
-    "channel_1_ca_sang_team_id": (1, "CA_SANG"),
-    "channel_1_ca_toi_team_id": (1, "CA_TOI"),
-    "channel_2_ca_sang_team_id": (2, "CA_SANG"),
-    "channel_2_ca_toi_team_id": (2, "CA_TOI"),
-}
 
 
 @router.get("/channels")
@@ -73,7 +55,6 @@ def update_channel(channel_id: int, payload: ChannelUpdate, db: Session = Depend
         setattr(row, key, value)
     db.commit()
     return {"ok": True}
-
 
 @router.get("/teams")
 def teams(db: Session = Depends(get_db), user=Depends(get_current_user)):
@@ -121,52 +102,3 @@ def update_thresholds(payload: ThresholdUpdate, db: Session = Depends(get_db), _
             db.add(AppSetting(key=key, value=str(value)))
     db.commit()
     return {"ok": True}
-
-
-@router.get("/settings/daily-schedule/{work_date}")
-def get_daily_schedule(work_date: date, db: Session = Depends(get_db), _=Depends(get_current_user)):
-    assignments = day_schedule(db, work_date)
-    active_fields = [field for field, (channel_id, _) in SCHEDULE_FIELDS.items() if channel_id in settings.active_channel_ids]
-    return {
-        "date": work_date.isoformat(),
-        "is_today_vietnam": work_date == vietnam_date(),
-        "active_shop_count": len(settings.active_channel_ids),
-        "complete": all(assignments[field] is not None for field in active_fields),
-        **assignments,
-    }
-
-
-@router.put("/settings/daily-schedule/{work_date}")
-def save_daily_schedule(work_date: date, payload: DailyScheduleUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
-    supplied = payload.model_dump(exclude_unset=True)
-    for field, team_id in supplied.items():
-        channel_id, shift = SCHEDULE_FIELDS[field]
-        if channel_id not in settings.active_channel_ids:
-            continue
-        existing = db.scalar(
-            select(DailyTeamAssignment).where(
-                DailyTeamAssignment.work_date == work_date,
-                DailyTeamAssignment.channel_id == channel_id,
-                DailyTeamAssignment.shift == shift,
-            )
-        )
-        if team_id in (None, 0):
-            if existing:
-                db.delete(existing)
-            continue
-        if not db.get(Team, team_id):
-            raise HTTPException(400, f"Team {team_id} không hợp lệ")
-        if existing:
-            existing.team_id = team_id
-        else:
-            db.add(DailyTeamAssignment(work_date=work_date, channel_id=channel_id, shift=shift, team_id=team_id))
-    db.commit()
-    assignments = day_schedule(db, work_date)
-    active_fields = [field for field, (channel_id, _) in SCHEDULE_FIELDS.items() if channel_id in settings.active_channel_ids]
-    return {
-        "ok": True,
-        "date": work_date.isoformat(),
-        "active_shop_count": len(settings.active_channel_ids),
-        "complete": all(assignments[field] is not None for field in active_fields),
-        **assignments,
-    }

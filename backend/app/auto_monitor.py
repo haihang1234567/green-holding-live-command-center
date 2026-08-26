@@ -24,10 +24,9 @@ from .live_runtime import (
     profile_for_channel,
     shop_client,
 )
-from .models import AdsSnapshot, Alert, AppSetting, Channel, LiveMetricSnapshot, LiveSession, Order, RefundSnapshot, SessionStatus
+from .models import AdsSnapshot, Alert, AppSetting, Channel, LiveMetricSnapshot, LiveSession, Order, RefundSnapshot, SessionStatus, Team
 from .providers import TikTokShopProvider
 from .realtime import manager
-from .schedule import scheduled_team, vietnam_date
 from .services import create_alert, create_metric_snapshot, local_shift, snapshot_type, start_session, stop_session, sync_normalized_order
 from .tiktok_analytics import get_best_live_metrics
 
@@ -64,6 +63,16 @@ def _recent_alert_exists(db, channel_id: int, alert_type: str, minutes: int = 30
             .limit(1)
         )
     )
+
+
+def _api_team(db) -> Team:
+    """Internal owner for API sessions; no operator scheduling is required."""
+    team = db.scalar(select(Team).where(Team.name == "TikTok API"))
+    if not team:
+        team = Team(name="TikTok API", target_gmv=0)
+        db.add(team)
+        db.flush()
+    return team
 
 
 def _apply_returns(db, channel, rows):
@@ -287,22 +296,7 @@ async def monitor_cycle() -> None:
 
             if signal["status"] == "LIVE" and not active:
                 shift = local_shift()
-                try:
-                    team = scheduled_team(db, channel, shift)
-                except RuntimeError as exc:
-                    state.update(error=str(exc), schedule_date=vietnam_date().isoformat(), session_id=None)
-                    if not _recent_alert_exists(db, channel.id, "SCHEDULE_MISSING"):
-                        create_alert(
-                            db,
-                            "SCHEDULE_MISSING",
-                            "CHƯA PHÂN CA HÔM NAY",
-                            str(exc),
-                            severity="WARNING",
-                            channel_id=channel.id,
-                        )
-                    db.commit()
-                    monitor_state["channels"][str(channel.id)] = state
-                    continue
+                team = _api_team(db)
                 active = start_session(db, channel, team, shift, "AUTO_API")
                 _set_active_room(db, channel.id, signal.get("live_room_id"))
                 db.commit()
