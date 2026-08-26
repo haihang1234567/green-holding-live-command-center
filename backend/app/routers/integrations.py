@@ -114,7 +114,6 @@ async def test_live(channel_id:int,db:Session=Depends(get_db),_=Depends(require_
 @router.post("/test/shop/{channel_id}")
 async def test_shop(channel_id:int,db:Session=Depends(get_db),_=Depends(require_admin)):
     if channel_id not in settings.active_channel_ids:raise HTTPException(404,"Shop này chưa được kích hoạt")
-    if settings.data_provider.upper()!="TIKTOK":raise HTTPException(409,"DATA_PROVIDER chưa đặt thành TIKTOK")
     ch=db.get(Channel,channel_id)
     if not ch:raise HTTPException(404,"Không tìm thấy kênh")
     try:
