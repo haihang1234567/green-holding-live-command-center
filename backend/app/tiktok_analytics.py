@@ -61,7 +61,7 @@ async def get_best_live_metrics(channel: Channel, live_room_id: str | None) -> d
             "comments": None,
             "shares": None,
             "avg_watch_seconds": None,
-            "items_sold": sales.get("items_sold") or sales.get("units_sold"),
+            "items_sold": sales.get("items_sold") or sales.get("unit_sold") or sales.get("units_sold"),
             "raw": selected,
             "source": "TIKTOK_SHOP_LIVE_PERFORMANCE",
         }
