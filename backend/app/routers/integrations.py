@@ -21,7 +21,8 @@ logger=logging.getLogger(__name__)
 def _profile_status(channel):
     p=profile_for_channel(channel)
     stored=has_shop_authorization(p.shop_cipher) if p.shop_cipher else False
-    return {"slot":p.slot,"channel_id":channel.id,"channel_name":channel.name,"name":p.name,"shop":{"app_key":bool(p.app_key),"app_secret":bool(p.app_secret),"access_token":bool(p.access_token) or stored,"refresh_token":bool(p.refresh_token) or stored,"shop_cipher":bool(p.shop_cipher),"shop_id":p.shop_id or None},"ads":{"app_id":bool(p.ads_app_id),"secret":bool(p.ads_secret),"access_token":bool(p.ads_access_token),"advertiser_id":p.advertiser_id or None},"live":{"status_endpoint":bool(p.live_status_url),"status_mode":p.live_status_mode,"status_auth_mode":p.live_status_auth_mode,"metrics_endpoint":bool(p.live_metrics_url),"metrics_auth_mode":p.live_metrics_auth_mode}}
+    official_auto=settings.live_status_provider.upper()=="AUTO" and bool(p.app_key and p.app_secret and p.shop_cipher)
+    return {"slot":p.slot,"channel_id":channel.id,"channel_name":channel.name,"name":p.name,"shop":{"app_key":bool(p.app_key),"app_secret":bool(p.app_secret),"access_token":bool(p.access_token) or stored,"refresh_token":bool(p.refresh_token) or stored,"shop_cipher":bool(p.shop_cipher),"shop_id":p.shop_id or None},"ads":{"app_id":bool(p.ads_app_id),"secret":bool(p.ads_secret),"access_token":bool(p.ads_access_token),"advertiser_id":p.advertiser_id or None},"live":{"status_endpoint":bool(p.live_status_url) or official_auto,"status_mode":"TIKTOK_SHOP_ANALYTICS" if official_auto and not p.live_status_url else p.live_status_mode,"status_auth_mode":p.live_status_auth_mode,"metrics_endpoint":bool(p.live_metrics_url) or official_auto,"metrics_auth_mode":"TIKTOK_SHOP" if official_auto else p.live_metrics_auth_mode}}
 
 def _oauth_credentials()->tuple[str,str,str]:
     app_key=settings.tiktok_shop_app_key or settings.shop1_app_key

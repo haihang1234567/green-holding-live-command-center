@@ -304,6 +304,30 @@ class TikTokShopProvider(ShopProvider):
                 break
         return output
 
+    async def get_shop_live_sessions(self, channel: Channel, start_date: str, end_date: str) -> list[dict[str, Any]]:
+        """Return TikTok Shop LIVE sessions in the requested shop-local date range."""
+        path = "/analytics/202509/shop_lives/performance"
+        page_token: str | None = None
+        output: list[dict[str, Any]] = []
+        for _ in range(5):
+            query = {
+                "start_date_ge": start_date,
+                "end_date_lt": end_date,
+                "page_size": 100,
+                "page_token": page_token,
+                "sort_field": "gmv",
+                "sort_order": "DESC",
+                "currency": "LOCAL",
+                "account_type": "ALL",
+            }
+            payload = await self._request("GET", path, channel, query=query)
+            data = payload.get("data") or {}
+            output.extend(data.get("live_stream_sessions") or data.get("live_sessions") or [])
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+        return output
+
     @staticmethod
     def normalize_order(raw: dict[str, Any]) -> list[dict[str, Any]]:
         """Normalize an order into one or more SKU-level records.

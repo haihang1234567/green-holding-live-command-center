@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -217,6 +218,37 @@ async def get_live_signal(channel: Channel) -> dict[str, Any]:
     apply_profile(channel, p)
     if settings.live_status_provider.upper() == "MOCK":
         return {"status": "LIVE" if channel.mock_is_live else "OFFLINE", "live_room_id": None, "raw": {"mock": True}}
+    if settings.live_status_provider.upper() == "AUTO" and not p.live_status_url:
+        client, _ = shop_client(channel)
+        shop_now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+        sessions = await client.get_shop_live_sessions(
+            channel,
+            (shop_now.date() - timedelta(days=1)).isoformat(),
+            (shop_now.date() + timedelta(days=1)).isoformat(),
+        )
+        now_epoch = int(datetime.now(timezone.utc).timestamp())
+        active = None
+        for item in sessions:
+            state = str(item.get("status") or item.get("live_status") or "").strip().upper()
+            if state in {"LIVE", "ONGOING", "IN_PROGRESS", "STREAMING"}:
+                active = item
+                break
+            try:
+                start_epoch = int(item.get("start_time") or 0)
+                end_epoch = int(item.get("end_time") or 0)
+            except (TypeError, ValueError):
+                continue
+            if start_epoch and start_epoch <= now_epoch + 300 and (not end_epoch or end_epoch >= now_epoch - 60):
+                active = item
+                break
+        room_id = None
+        if active:
+            room_id = active.get("id") or active.get("live_id") or active.get("live_room_id")
+        return {
+            "status": "LIVE" if active else "OFFLINE",
+            "live_room_id": str(room_id) if room_id not in (None, "") else None,
+            "raw": {"source": "TIKTOK_SHOP_LIVE_PERFORMANCE", "sessions_found": len(sessions)},
+        }
     if not p.live_status_url:
         return {"status": "UNKNOWN", "live_room_id": None, "raw": {"reason": "live_status_url_missing"}}
     key = p.live_source_key or p.shop_id or p.shop_cipher or channel.handle or str(channel.id)
