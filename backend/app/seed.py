@@ -2,18 +2,43 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .models import AdsSnapshot, AppSetting, Channel, LiveSession, Order, RefundSnapshot, SessionStatus, Team, User, UserRole
+from .attribution_models import OrderAttribution
+from .live_models import LiveCoreSnapshot
+from .models import Alert, AdsSnapshot, AppSetting, Channel, LiveMetricSnapshot, LiveSession, Order, RefundSnapshot, SessionStatus, Team, User, UserRole
 from .security import hash_password
 from .services import add_mock_ads, add_mock_orders, create_metric_snapshot, create_refund_snapshot
 
 settings = get_settings()
 
 
+def purge_mock_data(db: Session) -> None:
+    """Remove demo LIVE data while preserving users, teams and TikTok credentials."""
+    mock_session_ids = select(LiveSession.id).where(LiveSession.source == "MOCK")
+    mock_channel_ids = select(LiveSession.channel_id).where(LiveSession.source == "MOCK")
+    db.execute(delete(OrderAttribution).where(OrderAttribution.session_id.in_(mock_session_ids)))
+    db.execute(delete(LiveCoreSnapshot).where(LiveCoreSnapshot.session_id.in_(mock_session_ids)))
+    db.execute(delete(Alert).where(Alert.session_id.in_(mock_session_ids)))
+    db.execute(delete(RefundSnapshot).where(RefundSnapshot.session_id.in_(mock_session_ids)))
+    db.execute(delete(LiveMetricSnapshot).where(LiveMetricSnapshot.session_id.in_(mock_session_ids)))
+    db.execute(delete(AdsSnapshot).where(AdsSnapshot.live_session_id.in_(mock_session_ids)))
+    db.execute(delete(Order).where(Order.live_session_id.in_(mock_session_ids)))
+    db.execute(
+        update(Channel)
+        .where(Channel.id.in_(mock_channel_ids))
+        .values(status=SessionStatus.OFFLINE.value, mock_is_live=False)
+    )
+    db.execute(delete(LiveSession).where(LiveSession.source == "MOCK"))
+    db.commit()
+
+
 def seed_database(db: Session) -> None:
+    if settings.purge_mock_data:
+        purge_mock_data(db)
+
     if db.scalar(select(Team.id).limit(1)):
         return
 

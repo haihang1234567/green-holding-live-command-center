@@ -18,9 +18,9 @@ services:
           name: green-holding-live-db
           property: connectionString
       - key: DATA_PROVIDER
-        value: MOCK
+        value: TIKTOK
       - key: LIVE_STATUS_PROVIDER
-        value: MOCK
+        value: AUTO
       - key: ACTIVE_SHOP_COUNT
         value: "1"
       - key: POLLING_INTERVAL_SECONDS
@@ -32,6 +32,8 @@ services:
       - key: FINAL_SNAPSHOT_AFTER_HOURS
         value: "168"
       - key: SEED_MOCK_DATA
+        value: "false"
+      - key: PURGE_MOCK_DATA
         value: "true"
       - key: ADMIN_USERNAME
         value: admin
