@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import joinedload
@@ -32,6 +33,9 @@ from .tiktok_analytics import get_best_live_metrics, live_performance_values
 
 settings = get_settings()
 monitor_state: dict[str, Any] = {"last_cycle_at": None, "last_cycle_duration_ms": None, "channels": {}}
+VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+LIVE_STATES = {"LIVE", "ONGOING", "IN_PROGRESS", "STREAMING"}
+ENDED_STATES = {"ENDED", "END", "FINISHED", "COMPLETED", "OFFLINE"}
 
 
 def _aware(value):
@@ -139,17 +143,49 @@ def _epoch_datetime(value: Any) -> datetime | None:
             return None
 
 
-def _ingest_performance_report(db, channel: Channel, item: dict[str, Any]) -> int | None:
-    """Persist the latest three-minute Shop LIVE report even when status is OFFLINE."""
-    external_id = str(item.get("id") or item.get("live_id") or item.get("live_room_id") or "")
+def _performance_report_id(item: dict[str, Any]) -> str:
+    return str(item.get("id") or item.get("live_id") or item.get("live_room_id") or "").strip()
+
+
+def _performance_report_state(item: dict[str, Any], started: datetime, ended: datetime | None) -> str:
+    raw_state = str(item.get("status") or item.get("live_status") or "").strip().upper()
+    if raw_state in LIVE_STATES:
+        return SessionStatus.LIVE.value
+    if ended or raw_state in ENDED_STATES:
+        return SessionStatus.ENDED.value
+    # TikTok may omit status/end_time for an in-progress report. Bound the
+    # inference so an incomplete historical row cannot stay LIVE forever.
+    age = datetime.now(timezone.utc) - started
+    return SessionStatus.LIVE.value if timedelta(minutes=-5) <= age <= timedelta(hours=36) else SessionStatus.ENDED.value
+
+
+def _performance_report_end(item: dict[str, Any], started: datetime) -> datetime | None:
+    ended = _epoch_datetime(item.get("end_time"))
+    if ended:
+        return ended
+    duration = item.get("duration_seconds") or item.get("duration")
+    try:
+        seconds = int(float(duration))
+    except (TypeError, ValueError):
+        return None
+    return started + timedelta(seconds=seconds) if seconds > 0 else None
+
+
+def _ingest_performance_report(
+    db,
+    channel: Channel,
+    item: dict[str, Any],
+    *,
+    capture_unchanged: bool = False,
+) -> int | None:
+    """Upsert one TikTok LIVE report into permanent session history."""
+    external_id = _performance_report_id(item)
     started = _epoch_datetime(item.get("start_time"))
     if not external_id or not started:
         return None
-    vn_tz = timezone(timedelta(hours=7))
-    if started.astimezone(vn_tz).date() != datetime.now(vn_tz).date():
-        return None
 
-    ended = _epoch_datetime(item.get("end_time"))
+    ended = _performance_report_end(item, started)
+    report_status = _performance_report_state(item, started, ended)
     session_code = f"TTS-{channel.id}-{external_id}"[:64]
     session = db.scalar(
         select(LiveSession)
@@ -157,11 +193,14 @@ def _ingest_performance_report(db, channel: Channel, item: dict[str, Any]) -> in
         .where(LiveSession.session_code == session_code)
     )
     if not session:
+        # Reconcile a provisional AUTO_API row created while TikTok was LIVE.
+        # Never merge two analytics reports merely because they started close.
         session = db.scalar(
             select(LiveSession)
             .options(joinedload(LiveSession.channel), joinedload(LiveSession.team))
             .where(
                 LiveSession.channel_id == channel.id,
+                LiveSession.source == "AUTO_API",
                 LiveSession.started_at >= started - timedelta(minutes=15),
                 LiveSession.started_at <= started + timedelta(minutes=15),
             )
@@ -169,27 +208,51 @@ def _ingest_performance_report(db, channel: Channel, item: dict[str, Any]) -> in
             .limit(1)
         )
     if not session:
+        team = _api_team(db)
         session = LiveSession(
             session_code=session_code,
             channel_id=channel.id,
-            team_id=_api_team(db).id,
+            team_id=team.id,
             shift=local_shift(started),
             started_at=started,
             ended_at=ended,
-            status=SessionStatus.ENDED.value if ended else SessionStatus.LIVE.value,
+            status=report_status,
             source="TIKTOK_ANALYTICS",
         )
         db.add(session)
         db.flush()
         session.channel = channel
-        session.team = _api_team(db)
+        session.team = team
     else:
         session.session_code = session_code
         session.started_at = started
         session.ended_at = ended
-        session.status = SessionStatus.ENDED.value if ended else SessionStatus.LIVE.value
+        session.status = report_status
         if session.source != "MOCK":
             session.source = "TIKTOK_ANALYTICS"
+
+    # Only one LIVE row per channel is valid. A new TikTok live_id closes any
+    # stale provisional/history row at the new session boundary.
+    if report_status == SessionStatus.LIVE.value:
+        stale_rows = db.scalars(
+            select(LiveSession).where(
+                LiveSession.channel_id == channel.id,
+                LiveSession.status == SessionStatus.LIVE.value,
+                LiveSession.id != session.id,
+            )
+        ).all()
+        for stale in stale_rows:
+            stale.status = SessionStatus.ENDED.value
+            stale.ended_at = stale.ended_at or started
+        channel.status = SessionStatus.LIVE.value
+    elif not db.scalar(
+        select(LiveSession.id).where(
+            LiveSession.channel_id == channel.id,
+            LiveSession.status == SessionStatus.LIVE.value,
+            LiveSession.id != session.id,
+        ).limit(1)
+    ):
+        channel.status = SessionStatus.OFFLINE.value
 
     values = live_performance_values(item)
     raw_json = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
@@ -199,7 +262,7 @@ def _ingest_performance_report(db, channel: Channel, item: dict[str, Any]) -> in
         .order_by(LiveCoreSnapshot.captured_at.desc())
         .limit(1)
     )
-    if not previous or previous.raw_json != raw_json:
+    if capture_unchanged or not previous or previous.raw_json != raw_json:
         db.add(
             LiveCoreSnapshot(
                 session_id=session.id,
@@ -221,7 +284,91 @@ def _ingest_performance_report(db, channel: Channel, item: dict[str, Any]) -> in
         )
         db.flush()
         _record_live_metric_snapshot(db, session)
+    if report_status == SessionStatus.ENDED.value and ended and not db.scalar(
+        select(RefundSnapshot.id).where(
+            RefundSnapshot.session_id == session.id,
+            RefundSnapshot.snapshot_type == "T+0",
+        ).limit(1)
+    ):
+        refresh_refund_snapshot(db, session, 0)
     return session.id
+
+
+def _ingest_performance_reports(
+    db,
+    channel: Channel,
+    reports: list[dict[str, Any]],
+    *,
+    active_report_id: str | None = None,
+) -> dict[str, Any]:
+    """Persist every report returned by TikTok, idempotently by live_id."""
+    session_ids: list[int] = []
+    seen: set[str] = set()
+    ordered = sorted(
+        (item for item in reports if isinstance(item, dict)),
+        key=lambda item: _epoch_datetime(item.get("start_time")) or datetime.min.replace(tzinfo=timezone.utc),
+    )
+    for item in ordered:
+        external_id = _performance_report_id(item)
+        if not external_id or external_id in seen:
+            continue
+        seen.add(external_id)
+        session_id = _ingest_performance_report(
+            db,
+            channel,
+            item,
+            capture_unchanged=bool(active_report_id and external_id == active_report_id),
+        )
+        if session_id:
+            session_ids.append(session_id)
+    return {"reports_seen": len(seen), "sessions_saved": len(session_ids), "session_ids": session_ids}
+
+
+def _history_setting_key(channel_id: int) -> str:
+    return f"channel_{channel_id}_live_history_backfill_at"
+
+
+async def _backfill_live_history(channel_id: int) -> dict[str, Any]:
+    """Backfill recent LIVE history once per configured refresh period."""
+    with SessionLocal() as db:
+        channel = db.get(Channel, channel_id)
+        if not channel:
+            return {"ok": False, "reason": "channel_not_found"}
+        setting = db.get(AppSetting, _history_setting_key(channel_id))
+        last_run = _epoch_datetime(setting.value) if setting else None
+        refresh_after = timedelta(hours=max(1, settings.live_history_refresh_hours))
+        if last_run and datetime.now(timezone.utc) - last_run < refresh_after:
+            return {"ok": True, "skipped": True}
+        client, _ = shop_client(channel)
+
+    end_date = datetime.now(VN_TZ).date() + timedelta(days=1)
+    start_date = end_date - timedelta(days=max(1, settings.live_history_lookback_days))
+    cursor = start_date
+    reports_by_id: dict[str, dict[str, Any]] = {}
+    # Small date chunks stay within TikTok Analytics range limits and make a
+    # partial retry inexpensive if one request fails.
+    while cursor < end_date:
+        chunk_end = min(cursor + timedelta(days=7), end_date)
+        rows = await client.get_shop_live_sessions(channel, cursor.isoformat(), chunk_end.isoformat())
+        for item in rows:
+            external_id = _performance_report_id(item) if isinstance(item, dict) else ""
+            if external_id:
+                reports_by_id[external_id] = item
+        cursor = chunk_end
+
+    with SessionLocal() as db:
+        channel = db.get(Channel, channel_id)
+        if not channel:
+            return {"ok": False, "reason": "channel_not_found"}
+        result = _ingest_performance_reports(db, channel, list(reports_by_id.values()))
+        now_text = datetime.now(timezone.utc).isoformat()
+        setting = db.get(AppSetting, _history_setting_key(channel_id))
+        if setting:
+            setting.value = now_text
+        else:
+            db.add(AppSetting(key=_history_setting_key(channel_id), value=now_text))
+        db.commit()
+    return {"ok": True, "skipped": False, **result}
 
 
 async def sync_session(session_id: int, *, record_live_core: bool = True, record_metric: bool = True) -> dict[str, Any]:
@@ -378,21 +525,33 @@ async def monitor_cycle() -> None:
     for channel_id in ids:
         signal: dict[str, Any] = {"status": "UNKNOWN"}
         session_id: int | None = None
+        history_result: dict[str, Any] | None = None
+        try:
+            history_result = await _backfill_live_history(channel_id)
+        except Exception as exc:
+            history_result = {"ok": False, "error": _safe_error(exc)}
         with SessionLocal() as db:
             channel = db.get(Channel, channel_id)
             if not channel:
                 continue
             profile = profile_for_channel(channel)
-            state: dict[str, Any] = {"shop": profile.name, "channel_id": channel.id, "checked_at": datetime.now(timezone.utc).isoformat()}
+            state: dict[str, Any] = {"shop": profile.name, "channel_id": channel.id, "checked_at": datetime.now(timezone.utc).isoformat(), "history": history_result}
             try:
                 signal = await get_live_signal(channel)
                 state.update(signal=signal["status"], live_room_id=signal.get("live_room_id"), error=None)
-                latest_report = (signal.get("raw") or {}).get("latest_session")
-                if signal["status"] != "LIVE" and isinstance(latest_report, dict):
-                    report_session_id = _ingest_performance_report(db, channel, latest_report)
-                    if report_session_id:
-                        state["report_session_id"] = report_session_id
-                        db.commit()
+                raw_signal = signal.get("raw") or {}
+                reports = raw_signal.get("sessions") or []
+                latest_report = raw_signal.get("latest_session")
+                if not reports and isinstance(latest_report, dict):
+                    reports = [latest_report]
+                ingest_result = _ingest_performance_reports(
+                    db,
+                    channel,
+                    reports,
+                    active_report_id=signal.get("live_room_id") if signal["status"] == "LIVE" else None,
+                )
+                state["history_ingest"] = ingest_result
+                db.commit()
             except Exception as exc:
                 state.update(signal="UNKNOWN", error=_safe_error(exc))
                 if not _recent_alert_exists(db, channel.id, "LIVE_STATUS_ERROR"):
@@ -405,6 +564,8 @@ async def monitor_cycle() -> None:
                 select(LiveSession)
                 .options(joinedload(LiveSession.channel), joinedload(LiveSession.team))
                 .where(LiveSession.channel_id == channel.id, LiveSession.status == SessionStatus.LIVE.value)
+                .order_by(LiveSession.started_at.desc())
+                .limit(1)
             )
             session_id = active.id if active else None
 
@@ -418,26 +579,37 @@ async def monitor_cycle() -> None:
                 events.append({"channel_id": channel.id, "channel_name": channel.name, "shop": profile.name, "status": "LIVE", "session_id": session_id})
 
             elif signal["status"] == "OFFLINE" and active:
-                session_id = active.id
-                db.commit()
-                try:
-                    await sync_session(session_id)
-                except Exception as exc:
-                    with SessionLocal() as adb:
-                        if not _recent_alert_exists(adb, channel.id, "FINAL_SYNC_WARNING"):
-                            create_alert(adb, "FINAL_SYNC_WARNING", "FINAL SYNC WARNING", f"{channel.name}: {_safe_error(exc)}", severity="WARNING", session_id=session_id, channel_id=channel.id)
-                            adb.commit()
-                with SessionLocal() as cdb:
-                    closing = cdb.scalar(
-                        select(LiveSession)
-                        .options(joinedload(LiveSession.channel), joinedload(LiveSession.team))
-                        .where(LiveSession.id == session_id)
+                # Close every stale LIVE row, not only whichever row happens
+                # to be returned first by PostgreSQL.
+                active_ids = list(db.scalars(
+                    select(LiveSession.id).where(
+                        LiveSession.channel_id == channel.id,
+                        LiveSession.status == SessionStatus.LIVE.value,
                     )
-                    if closing and closing.status == SessionStatus.LIVE.value:
-                        stop_session(cdb, closing)
-                        refresh_refund_snapshot(cdb, closing, 0)
-                        _set_active_room(cdb, channel.id, None)
-                        cdb.commit()
+                ).all())
+                session_id = active_ids[-1] if active_ids else None
+                db.commit()
+                for closing_id in active_ids:
+                    try:
+                        await sync_session(closing_id)
+                    except Exception as exc:
+                        with SessionLocal() as adb:
+                            if not _recent_alert_exists(adb, channel.id, "FINAL_SYNC_WARNING"):
+                                create_alert(adb, "FINAL_SYNC_WARNING", "FINAL SYNC WARNING", f"{channel.name}: {_safe_error(exc)}", severity="WARNING", session_id=closing_id, channel_id=channel.id)
+                                adb.commit()
+                    with SessionLocal() as cdb:
+                        closing = cdb.scalar(
+                            select(LiveSession)
+                            .options(joinedload(LiveSession.channel), joinedload(LiveSession.team))
+                            .where(LiveSession.id == closing_id)
+                        )
+                        if closing and closing.status == SessionStatus.LIVE.value:
+                            stop_session(cdb, closing)
+                            refresh_refund_snapshot(cdb, closing, 0)
+                            cdb.commit()
+                with SessionLocal() as cdb:
+                    _set_active_room(cdb, channel.id, None)
+                    cdb.commit()
                 events.append({"channel_id": channel.id, "channel_name": channel.name, "shop": profile.name, "status": "OFFLINE", "session_id": session_id})
                 state["session_id"] = session_id
                 monitor_state["channels"][str(channel.id)] = state

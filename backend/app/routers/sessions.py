@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..attribution import override_serialized_session, session_attribution_summary
@@ -21,6 +24,8 @@ def list_sessions(
     status: str | None = Query(default=None),
     team_id: int | None = Query(default=None),
     channel_id: int | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     limit: int = Query(default=100, le=500),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -34,8 +39,35 @@ def list_sessions(
         query = query.where(LiveSession.team_id == team_id)
     if channel_id:
         query = query.where(LiveSession.channel_id == channel_id)
+    vietnam = ZoneInfo("Asia/Ho_Chi_Minh")
+    if date_from:
+        start = datetime.combine(date_from, datetime.min.time(), tzinfo=vietnam).astimezone(timezone.utc)
+        query = query.where(LiveSession.started_at >= start)
+    if date_to:
+        end = datetime.combine(date_to + timedelta(days=1), datetime.min.time(), tzinfo=vietnam).astimezone(timezone.utc)
+        query = query.where(LiveSession.started_at < end)
     rows = db.scalars(query.order_by(LiveSession.started_at.desc()).limit(limit)).unique().all()
-    return [override_serialized_session(db, serialize_session(db, row)) for row in rows]
+    ids = [row.id for row in rows]
+    snapshot_meta = {}
+    if ids:
+        snapshot_meta = {
+            session_id: {"snapshot_count": int(count or 0), "latest_snapshot_at": latest}
+            for session_id, count, latest in db.execute(
+                select(
+                    LiveMetricSnapshot.session_id,
+                    func.count(LiveMetricSnapshot.id),
+                    func.max(LiveMetricSnapshot.timestamp),
+                )
+                .where(LiveMetricSnapshot.session_id.in_(ids))
+                .group_by(LiveMetricSnapshot.session_id)
+            ).all()
+        }
+    output = []
+    for row in rows:
+        payload = override_serialized_session(db, serialize_session(db, row))
+        payload.update(snapshot_meta.get(row.id, {"snapshot_count": 0, "latest_snapshot_at": None}))
+        output.append(payload)
+    return output
 
 
 @router.get("/{session_id}")

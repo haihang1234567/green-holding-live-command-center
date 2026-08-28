@@ -230,17 +230,23 @@ async def get_live_signal(channel: Channel) -> dict[str, Any]:
         active = None
         for item in sessions:
             state = str(item.get("status") or item.get("live_status") or "").strip().upper()
-            if state in {"LIVE", "ONGOING", "IN_PROGRESS", "STREAMING"}:
-                active = item
-                break
             try:
                 start_epoch = int(item.get("start_time") or 0)
                 end_epoch = int(item.get("end_time") or 0)
             except (TypeError, ValueError):
                 continue
-            if start_epoch and start_epoch <= now_epoch + 300 and (not end_epoch or end_epoch >= now_epoch - 60):
-                active = item
-                break
+            # Some Shop Analytics responses omit a textual status. Treat a
+            # missing end_time as active only for a bounded period; otherwise
+            # an old report could keep the channel LIVE forever.
+            if (
+                start_epoch
+                and start_epoch <= now_epoch + 300
+                and now_epoch - start_epoch <= 36 * 3600
+                and (not end_epoch or end_epoch >= now_epoch - 60)
+            ):
+                if state in {"", "LIVE", "ONGOING", "IN_PROGRESS", "STREAMING"}:
+                    active = item
+                    break
         room_id = None
         if active:
             room_id = active.get("id") or active.get("live_id") or active.get("live_room_id")
@@ -256,6 +262,9 @@ async def get_live_signal(channel: Channel) -> dict[str, Any]:
             "raw": {
                 "source": "TIKTOK_SHOP_LIVE_PERFORMANCE",
                 "sessions_found": len(sessions),
+                # The monitor persists every returned report, not only the
+                # newest one. This is the source for daily LIVE history.
+                "sessions": sessions,
                 "latest_session": latest,
             },
         }

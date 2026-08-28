@@ -116,6 +116,17 @@ body{color-scheme:light}
 .badge.ended{background:#f0f3f1!important;color:#63756c!important}
 .badge.offline{background:#f4f5f4!important;color:#75857d!important}
 
+/* Persistent LIVE history */
+.history-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:14px}
+.history-summary>div{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:5px 10px;padding:16px 18px;background:#fff;border:1px solid #dfe7e3;border-radius:14px;box-shadow:var(--shadow)}
+.history-summary svg{grid-row:1/3;color:#15965d}
+.history-summary span{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#71847a}
+.history-summary b{font-size:20px;color:#17241d}
+.history-filters{display:flex;align-items:end;gap:12px;margin-bottom:14px;padding:14px 16px!important}
+.history-filters label{display:grid;gap:6px;min-width:160px;color:#667a70;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.history-filters input,.history-filters select{height:38px;padding:0 10px;border:1px solid #d7e1dc;border-radius:8px;background:#fff;color:#1e2c25}
+.cell-sub{display:block;margin-top:4px;color:#82938b;font-size:10px;font-weight:500;white-space:nowrap}
+
 /* Refund / config */
 .refund-big{background:#fff8eb!important;border-color:#efd7aa!important}
 .refund-big small{color:#9a7950!important}
@@ -149,4 +160,9 @@ code,pre{background:#f1f5f3!important;color:#244236!important;border-color:#dce6
 @media(max-width:900px){
   .sidebar{box-shadow:10px 0 30px rgba(20,45,34,.12)!important}
   .topbar{background:rgba(255,255,255,.97)!important}
+  .history-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .history-filters{align-items:stretch;flex-direction:column}
+  .history-filters label{min-width:0}
 }
+
+@media(max-width:520px){.history-summary{grid-template-columns:1fr}}

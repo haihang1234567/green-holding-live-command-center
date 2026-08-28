@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -13,6 +13,22 @@ def _start_epoch(item: dict[str, Any]) -> int:
         return int(item.get("start_time") or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _active_report(item: dict[str, Any], now_epoch: int) -> bool:
+    state = str(item.get("status") or item.get("live_status") or "").strip().upper()
+    start = _start_epoch(item)
+    try:
+        end = int(item.get("end_time") or 0)
+    except (TypeError, ValueError):
+        end = 0
+    return bool(
+        start
+        and start <= now_epoch + 300
+        and now_epoch - start <= 36 * 3600
+        and (not end or end >= now_epoch - 60)
+        and state in {"", "LIVE", "ONGOING", "IN_PROGRESS", "STREAMING"}
+    )
 
 
 def live_performance_values(selected: dict[str, Any]) -> dict[str, Any]:
@@ -64,16 +80,9 @@ async def get_best_live_metrics(channel: Channel, live_room_id: str | None) -> d
             None,
         )
     if selected is None:
-        active = next(
-            (
-                item
-                for item in sessions
-                if str(item.get("status") or item.get("live_status") or "").upper()
-                in {"LIVE", "ONGOING", "IN_PROGRESS", "STREAMING"}
-                or not item.get("end_time")
-            ),
-            None,
-        )
+        now_epoch = int(datetime.now(timezone.utc).timestamp())
+        active_rows = [item for item in sessions if _active_report(item, now_epoch)]
+        active = max(active_rows, key=_start_epoch) if active_rows else None
         selected = active or (max(sessions, key=_start_epoch) if sessions else None)
 
     if selected:
